@@ -1,3 +1,8 @@
+# ---------------------------------------------------------
+# Step 1: Initialize local testing script
+# Simulates an API Gateway WebSocket event and invokes the
+# Lambda handler directly without deploying to AWS.
+# ---------------------------------------------------------
 import json
 import os
 

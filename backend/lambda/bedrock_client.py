@@ -30,8 +30,14 @@ TOOL_DEFINITIONS = [
     }
 ]
 
+# ---------------------------------------------------------
+# Step 1: Invoke Amazon Bedrock
+# Uses the Converse API to query the Claude model, forcing
+# it to return a structured JSON tool call with Mermaid JS.
+# ---------------------------------------------------------
 def invoke_bedrock(system_prompt: str, user_message: str) -> dict:
     try:
+        # Call the Bedrock Converse API with the Claude model
         response = bedrock.converse(
             modelId=MODEL_ID,
             system=[{"text": system_prompt}],
@@ -42,12 +48,17 @@ def invoke_bedrock(system_prompt: str, user_message: str) -> dict:
             toolConfig={"tools": TOOL_DEFINITIONS}
         )
 
+        # Extract the content blocks from the response message
         content = response["output"]["message"]["content"]
+        
+        # Search for and return the first tool use JSON block
         for block in content:
             if block.get("toolUse"):
                 return block["toolUse"]["input"]
 
+        # Return an error if Claude didn't use the required tool
         return {"error": "Bedrock did not return a tool call"}
 
     except Exception as e:
+        # Catch and return any API or validation errors
         return {"error": str(e)}
