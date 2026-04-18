@@ -1,9 +1,53 @@
-"""Hard-coded validation rules for architecture suggestions."""
+"""Architecture validation rules for Mermaid-generated AWS diagrams.
+
+This module performs fast, deterministic validation using a strict service
+allowlist. It is designed to run before any LLM-based validation so users get
+immediate feedback on obvious issues.
+
+Validation goals:
+1. Ensure at least one service is selected.
+2. Ensure only approved services are used.
+3. Detect duplicate directed connections (same ``from -> to`` more than once).
+4. Warn when a selected service is not connected.
+5. Warn when a connection references services outside the selected list.
+"""
 
 from __future__ import annotations
+
 from collections import Counter
+from typing import NotRequired, TypedDict
 
 
+class Connection(TypedDict):
+    """Represents one Mermaid edge in normalized API payload form.
+
+    Keys:
+        from: Source service name.
+        to: Target service name.
+        label: Optional edge label shown in Mermaid.
+    """
+
+    from_: str
+    to: str
+    label: NotRequired[str]
+
+
+class ValidationIssue(TypedDict):
+    """A single validation error or warning."""
+
+    rule: str
+    message: str
+
+
+class ValidationResult(TypedDict):
+    """Top-level architecture validation response."""
+
+    passed: bool
+    errors: list[ValidationIssue]
+    warnings: list[ValidationIssue]
+
+
+# Canonical list of services allowed in ArcForge v1 architectures.
 ALLOWED_SERVICES = {
     "S3",
     "Lambda",
@@ -14,6 +58,7 @@ ALLOWED_SERVICES = {
 }
 
 
+# Aliases normalize common casing/spelling variants from prompts/Mermaid nodes.
 SERVICE_ALIASES = {
     "s3": "S3",
     "lambda": "Lambda",
@@ -28,31 +73,40 @@ SERVICE_ALIASES = {
 
 
 def _normalize_service_name(service_name: str) -> str:
+    """Normalize service names to canonical values used by the validator.
+
+    Normalization rules:
+    - Trim surrounding whitespace.
+    - Convert known aliases (case-insensitive) to canonical names.
+    - Return an empty string when input is blank.
+    """
+
     raw = service_name.strip()
     if not raw:
         return ""
     return SERVICE_ALIASES.get(raw.lower(), raw)
 
 
-def validate_architecture_rules(services: list[str], connections: list[dict]) -> dict:
+def validate_architecture_rules(services: list[str], connections: list[dict]) -> ValidationResult:
     """Validate selected services and Mermaid connections against project rules.
 
     Args:
-        services: List of service names, e.g. ["S3", "Lambda", "API Gateway"]
-        connections: List of dicts with "from", "to", "label" keys
+        services: Selected service names, e.g. ["S3", "Lambda", "API Gateway"].
+        connections: Connection dictionaries containing ``from`` and ``to`` keys
+            (and optional ``label``). Example:
+            [{"from": "API Gateway", "to": "Lambda", "label": "invoke"}]
 
     Returns:
-        {
-            "passed": bool,
-            "errors": [{"rule": "allowed_services", "message": "Only approved services may be used..."}],
-            "warnings": [{"rule": "orphan", "message": "S3 is not connected to anything"}]
-        }
+        A dictionary with:
+        - ``passed``: ``True`` when no errors are present.
+        - ``errors``: Blocking issues that should fail validation.
+        - ``warnings``: Non-blocking issues to surface in chat feedback.
     """
 
     normalized_services = [_normalize_service_name(service) for service in services]
     service_set = set(normalized_services)
-    errors: list[dict] = []
-    warnings: list[dict] = []
+    errors: list[ValidationIssue] = []
+    warnings: list[ValidationIssue] = []
 
     if not service_set:
         errors.append(
@@ -75,10 +129,13 @@ def validate_architecture_rules(services: list[str], connections: list[dict]) ->
             }
         )
 
+    # Count directed edges so repeated links can be flagged.
     connection_counts = Counter()
     connected_services: set[str] = set()
 
     for connection in connections:
+        # ``from`` is a Python keyword in type declarations, but valid as a dict
+        # key in runtime payloads.
         source = _normalize_service_name(str(connection.get("from", "")))
         target = _normalize_service_name(str(connection.get("to", "")))
 
