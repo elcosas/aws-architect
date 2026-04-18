@@ -47,7 +47,7 @@ class ValidationResult(TypedDict):
     warnings: list[ValidationIssue]
 
 
-# Canonical list of services allowed in ArcForge v1 architectures.
+# Canonical list of services allowed in v1 architectures.
 ALLOWED_SERVICES = {
     "S3",
     "Lambda",

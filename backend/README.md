@@ -1,21 +1,28 @@
 # Backend
 
-Backend services
+Backend validation and deployment logic for project.
 
-## What we have so far
+## Current status
 
-- Python backend structure initialized
-- `validation/architecture_rules.py` added for **architecture rule validation**
-- `.gitignore` configured for Python/Lambda development
-- `requirements.txt` added for shared backend dependencies
+- Python backend scaffolded
+- Validation package created in `validation/`
+- Architecture rules validator added
+- Mermaid syntax validator added
+- Backend `.gitignore` and `requirements.txt` added
 
-## Tech (backend)
+## Validation modules (so far)
 
-- Python 3.12
-- AWS SDK (`boto3`)
-- YAML processing (`PyYAML`)
-- CloudFormation linting (`cfn-lint`)
-- Testing (`pytest`)
+- `validation/architecture_rules.py`
+  - Enforces approved-service allowlist
+  - Checks minimum service selection
+  - Flags duplicate connections
+  - Warns on orphan services and connection references not in selected services
+
+- `validation/mermaid_syntax.py`
+  - Performs lightweight Mermaid formatting checks
+  - Validates diagram header (`graph`/`flowchart` + direction)
+  - Checks delimiter/quote balance
+  - Warns on minimal diagrams and missing visible edges
 
 ## Setup
 
@@ -28,15 +35,24 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## Current folder structure
+## Dependencies
 
-- `validation/` – validation pipeline logic
-  - `architecture_rules.py` – hard-coded architecture validation rules
-- `requirements.txt` – shared backend dependencies
-- `.gitignore` – ignores venv, caches, build artifacts, etc.
+- `boto3` (AWS APIs)
+- `PyYAML` (YAML handling)
+- `cfn-lint` (CloudFormation linting)
+- `pytest` (testing)
+
+## Folder structure
+
+- `validation/`
+  - `__init__.py`
+  - `architecture_rules.py`
+  - `mermaid_syntax.py`
+- `requirements.txt`
+- `.gitignore`
 
 ## Notes
 
 - Keep the virtual environment in `backend/.venv`
-- Do not commit secrets (`.env`, credentials, keys)
-- README is intentionally minimal for now and will be expanded as features land
+- Do not commit secrets (`.env`, keys, credentials)
+- This README is intentionally concise and will be expanded as API/Lambda handlers are added
