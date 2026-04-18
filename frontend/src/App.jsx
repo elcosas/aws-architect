@@ -11,10 +11,8 @@ function App() {
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
-  // NEW: State to track if the user has manually scrolled up
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   
-  // NEW: References for our scrolling logic
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
 
@@ -23,25 +21,24 @@ function App() {
     "CloudFront", "CloudFormation", "DynamoDB", "AWS IAM"
   ];
 
-  // NEW: Auto-scroll effect. Runs every time 'messages' or 'isLoading' changes.
   useEffect(() => {
-    // Only auto-scroll if the user hasn't manually scrolled up
     if (!isUserScrolledUp) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, isLoading]);
 
-  // NEW: Detect when the user scrolls manually
   const handleScroll = () => {
     const container = chatContainerRef.current;
     if (!container) return;
 
-    // Calculate how far the user is from the absolute bottom of the container
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    
-    // If they are more than 50px away from the bottom, they have scrolled up.
-    // This disables auto-scroll until they scroll back down.
     setIsUserScrolledUp(distanceFromBottom > 50);
+  };
+
+  // NEW: Function to force scroll to bottom and reset the state
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setIsUserScrolledUp(false);
   };
 
   const handleSendMessage = async (e) => {
@@ -88,7 +85,6 @@ function App() {
       )}
 
       {messages.length > 0 ? (
-        // NEW: Added ref and onScroll listener to the main chat area
         <main className="messages-area" ref={chatContainerRef} onScroll={handleScroll}>
           {messages.map((msg, index) => (
             <div key={index} className={`message ${msg.role}`}>
@@ -107,7 +103,6 @@ function App() {
               </div>
             </div>
           )}
-          {/* NEW: Invisible anchor div at the very bottom to scroll to */}
           <div ref={messagesEndRef} />
         </main>
       ) : (
@@ -115,6 +110,20 @@ function App() {
           <h2>Hi there,</h2>
           <h1>Where should we start?</h1>
         </div>
+      )}
+
+      {/* NEW: Floating Scroll to Bottom Button */}
+      {isUserScrolledUp && messages.length > 0 && (
+        <button 
+          className="scroll-to-bottom" 
+          onClick={scrollToBottom}
+          aria-label="Scroll to bottom"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <polyline points="19 12 12 19 5 12"></polyline>
+          </svg>
+        </button>
       )}
 
       <footer className="input-area">
