@@ -1,184 +1,276 @@
-.counter {
-  font-size: 16px;
-  padding: 5px 10px;
-  border-radius: 5px;
-  color: var(--accent);
-  background: var(--accent-bg);
-  border: 2px solid transparent;
-  transition: border-color 0.3s;
-  margin-bottom: 24px;
+/* src/styles/App.css */
 
-  &:hover {
-    border-color: var(--accent-border);
-  }
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-}
-
-.hero {
-  position: relative;
-
-  .base,
-  .framework,
-  .vite {
-    inset-inline: 0;
-    margin: 0 auto;
-  }
-
-  .base {
-    width: 170px;
-    position: relative;
-    z-index: 0;
-  }
-
-  .framework,
-  .vite {
-    position: absolute;
-  }
-
-  .framework {
-    z-index: 1;
-    top: 34px;
-    height: 28px;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
-      scale(1.4);
-  }
-
-  .vite {
-    z-index: 0;
-    top: 107px;
-    height: 26px;
-    width: auto;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
-      scale(0.8);
-  }
-}
-
-#center {
+/* --- 1. MAIN CHAT LAYOUT --- */
+.chat-container {
   display: flex;
   flex-direction: column;
-  gap: 25px;
-  place-content: center;
-  place-items: center;
-  flex-grow: 1;
-
-  @media (max-width: 1024px) {
-    padding: 32px 20px 24px;
-    gap: 18px;
-  }
-}
-
-#next-steps {
-  display: flex;
-  border-top: 1px solid var(--border);
-  text-align: left;
-
-  & > div {
-    flex: 1 1 0;
-    padding: 32px;
-    @media (max-width: 1024px) {
-      padding: 24px 20px;
-    }
-  }
-
-  .icon {
-    margin-bottom: 16px;
-    width: 22px;
-    height: 22px;
-  }
-
-  @media (max-width: 1024px) {
-    flex-direction: column;
-    text-align: center;
-  }
-}
-
-#docs {
-  border-right: 1px solid var(--border);
-
-  @media (max-width: 1024px) {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-}
-
-#next-steps ul {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  gap: 8px;
-  margin: 32px 0 0;
-
-  .logo {
-    height: 18px;
-  }
-
-  a {
-    color: var(--text-h);
-    font-size: 16px;
-    border-radius: 6px;
-    background: var(--social-bg);
-    display: flex;
-    padding: 6px 12px;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    transition: box-shadow 0.3s;
-
-    &:hover {
-      box-shadow: var(--shadow);
-    }
-    .button-icon {
-      height: 18px;
-      width: 18px;
-    }
-  }
-
-  @media (max-width: 1024px) {
-    margin-top: 20px;
-    flex-wrap: wrap;
-    justify-content: center;
-
-    li {
-      flex: 1 1 calc(50% - 8px);
-    }
-
-    a {
-      width: 100%;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-  }
-}
-
-#spacer {
-  height: 88px;
-  border-top: 1px solid var(--border);
-  @media (max-width: 1024px) {
-    height: 48px;
-  }
-}
-
-.ticks {
-  position: relative;
+  height: 100vh;
   width: 100%;
+  background-color: #131314;
+  font-family: "Amazon Ember", "Segoe UI", sans-serif;
+}
 
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    top: -4.5px;
-    border: 5px solid transparent;
-  }
+.chat-header {
+  background-color: #1e1f20;
+  color: #ffffff;
+  padding: 20px max(20px, calc((100% - 900px) / 2));
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 3px solid #FF9900;
+}
 
-  &::before {
-    left: 0;
-    border-left-color: var(--border);
-  }
-  &::after {
-    right: 0;
-    border-right-color: var(--border);
-  }
+.chat-header h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.messages-area {
+  flex: 1;
+  padding: 20px max(20px, calc((100% - 900px) / 2));
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background-color: #131314;
+}
+
+.message {
+  max-width: 80%;
+  padding: 12px 16px;
+  border-radius: 8px;
+  line-height: 1.5;
+  font-size: 15px;
+}
+
+.message.user {
+  align-self: flex-end;
+  background-color: #FF9900; 
+  color: #131314; 
+  border-bottom-right-radius: 0;
+  font-weight: 500;
+}
+
+.message.assistant {
+  align-self: flex-start;
+  background-color: #1e1f20; 
+  color: #e3e3e3;
+  border: 1px solid #444746;
+  border-bottom-left-radius: 0;
+}
+
+/* --- 2. TIMESTAMPS --- */
+.message-timestamp {
+  font-size: 11px;
+  margin-top: 6px;
+  text-align: right;
+  font-weight: 400;
+}
+
+.message.user .message-timestamp {
+  color: rgba(19, 19, 20, 0.6); 
+}
+
+.message.assistant .message-timestamp {
+  color: #879596; 
+}
+
+/* --- 3. INPUT AREA & CONTROLS --- */
+.input-area {
+  position: relative;
+  padding: 20px max(20px, calc((100% - 900px) / 2));
+  background-color: #131314;
+  border-top: none;
+}
+
+.input-form {
+  display: flex;
+  gap: 12px;
+}
+
+.chat-input {
+  flex: 1;
+  padding: 14px 16px;
+  background-color: #1e1f20; 
+  color: #ffffff;
+  border: 1px solid #444746;
+  border-radius: 8px;
+  font-size: 16px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.chat-input:focus {
+  border-color: #FF9900;
+  box-shadow: 0 0 0 1px #FF9900;
+}
+
+.send-button {
+  background-color: #FF9900;
+  color: #131314;
+  border: none;
+  border-radius: 8px;
+  padding: 0 24px;
+  font-weight: bold;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.send-button:hover {
+  background-color: #EC7211;
+}
+
+.send-button:disabled {
+  background-color: #444746;
+  color: #879596;
+  cursor: not-allowed;
+}
+
+/* --- SCROLL TO BOTTOM BUTTON --- */
+.scroll-to-bottom {
+  position: absolute;
+  top: -30px; /* CHANGED: Brings it much closer to the input box */
+  left: 50%;
+  transform: translateX(-50%); 
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #1e1f20;
+  color: #FF9900;
+  border: 1px solid #444746;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+  transition: background-color 0.2s; 
+  z-index: 10;
+}
+
+.scroll-to-bottom:hover {
+  background-color: #333537;
+}
+
+/* --- 4. TYPING ANIMATION --- */
+.typing-indicator {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  height: 24px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  background-color: #879596;
+  border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
+}
+
+/* --- 5. HOME SCREEN --- */
+.home-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 max(40px, calc((100% - 900px) / 2));
+}
+
+.home-screen h2 {
+  font-size: 28px;
+  color: #879596;
+  font-weight: 500;
+  margin-bottom: 8px;
+  background: linear-gradient(90deg, #aa3bff, #ff9900);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.home-screen h1 {
+  font-size: 44px;
+  color: #e3e3e3; 
+  margin: 0;
+}
+
+/* --- 6. SUGGESTION CHIPS --- */
+.suggestion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+  justify-content: center;
+}
+
+.chip-button {
+  background-color: #1e1f20; 
+  color: #e3e3e3;
+  border: 1px solid #444746;
+  padding: 10px 18px;
+  border-radius: 24px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chip-button:hover {
+  background-color: #333537;
+  border-color: #879596;
+}
+
+/* --- 7. MARKDOWN STYLING --- */
+.message-content p {
+  margin: 0 0 8px 0;
+}
+.message-content p:last-child {
+  margin-bottom: 0;
+}
+.message-content ul, .message-content ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+.message-content code {
+  background-color: rgba(0, 0, 0, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.9em;
+}
+
+.message.user .message-content code {
+  background-color: rgba(255, 255, 255, 0.2); /* Lighter background for the orange bubble */
+}
+
+/* --- 8. MERMAID DIAGRAM STYLING --- */
+.mermaid-wrapper {
+  display: flex;
+  justify-content: center;
+  background-color: #131314;
+  margin: 12px 0;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #444746;
+  overflow-x: auto; /* Adds a scrollbar if the chart gets too wide for the bubble */
+  contain: content;
+}
+
+.mermaid-wrapper svg {
+  max-width: 100%;
+  height: auto;
 }
