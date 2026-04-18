@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
 import './styles/App.css'
 
 // Helper function to format the current time
@@ -35,7 +36,6 @@ function App() {
     setIsUserScrolledUp(distanceFromBottom > 50);
   };
 
-  // NEW: Function to force scroll to bottom and reset the state
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     setIsUserScrolledUp(false);
@@ -59,9 +59,10 @@ function App() {
     try {
       await new Promise(resolve => setTimeout(resolve, 1000)); 
       
+      // CHANGED: Added Markdown formatting to test the parser!
       setMessages(prev => [...prev, { 
         role: 'assistant', 
-        content: "I've processed your request using our connected AWS architecture. What would you like to build next?",
+        content: "I've processed your request using our connected **AWS architecture**.\n\nHere are the core services you will need:\n* `AWS Lambda` for compute\n* `Amazon S3` for storage\n* `API Gateway` for routing",
         timestamp: getCurrentTime()
       }]);
     } catch (error) {
@@ -88,7 +89,10 @@ function App() {
         <main className="messages-area" ref={chatContainerRef} onScroll={handleScroll}>
           {messages.map((msg, index) => (
             <div key={index} className={`message ${msg.role}`}>
-              <div className="message-content">{msg.content}</div>
+              {/* CHANGED: Wrapped msg.content in ReactMarkdown */}
+              <div className="message-content">
+                <ReactMarkdown>{msg.content}</ReactMarkdown>
+              </div>
               {msg.timestamp && (
                 <div className="message-timestamp">{msg.timestamp}</div>
               )}
@@ -112,10 +116,8 @@ function App() {
         </div>
       )}
 
-      {/* Input Area, Service Buttons, and Floating Arrow */}
       <footer className="input-area">
         
-        {/* WE MOVED THE BUTTON INSIDE THE FOOTER */}
         {isUserScrolledUp && messages.length > 0 && (
           <button 
             className="scroll-to-bottom" 
