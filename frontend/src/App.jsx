@@ -112,21 +112,23 @@ function App() {
         </div>
       )}
 
-      {/* NEW: Floating Scroll to Bottom Button */}
-      {isUserScrolledUp && messages.length > 0 && (
-        <button 
-          className="scroll-to-bottom" 
-          onClick={scrollToBottom}
-          aria-label="Scroll to bottom"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <polyline points="19 12 12 19 5 12"></polyline>
-          </svg>
-        </button>
-      )}
-
+      {/* Input Area, Service Buttons, and Floating Arrow */}
       <footer className="input-area">
+        
+        {/* WE MOVED THE BUTTON INSIDE THE FOOTER */}
+        {isUserScrolledUp && messages.length > 0 && (
+          <button 
+            className="scroll-to-bottom" 
+            onClick={scrollToBottom}
+            aria-label="Scroll to bottom"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <polyline points="19 12 12 19 5 12"></polyline>
+            </svg>
+          </button>
+        )}
+
         <form className="input-form" onSubmit={handleSendMessage}>
           <input
             type="text"

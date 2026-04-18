@@ -5,7 +5,7 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  width: 100%; /* NEW: Allows the container to span the full screen */
+  width: 100%;
   background-color: #131314;
   font-family: "Amazon Ember", "Segoe UI", sans-serif;
 }
@@ -13,7 +13,6 @@
 .chat-header {
   background-color: #1e1f20;
   color: #ffffff;
-  /* NEW: Dynamic padding. Stretches background 100%, but keeps text centered at 900px */
   padding: 20px max(20px, calc((100% - 900px) / 2));
   text-align: left;
   display: flex;
@@ -30,7 +29,6 @@
 
 .messages-area {
   flex: 1;
-  /* NEW: Dynamic padding */
   padding: 20px max(20px, calc((100% - 900px) / 2));
   overflow-y: auto;
   display: flex;
@@ -63,7 +61,7 @@
   border-bottom-left-radius: 0;
 }
 
-/* --- TIMESTAMPS --- */
+/* --- 2. TIMESTAMPS --- */
 .message-timestamp {
   font-size: 11px;
   margin-top: 6px;
@@ -71,49 +69,17 @@
   font-weight: 400;
 }
 
-/* --- SCROLL TO BOTTOM BUTTON --- */
-.scroll-to-bottom {
-  position: absolute;
-  bottom: 160px; /* Floats right above the input tray */
-  left: 50%; /* Pushes it to the middle */
-  transform: translateX(-50%); /* Centers it perfectly on its own axis */
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background-color: #1e1f20;
-  color: #FF9900;
-  border: 1px solid #444746;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-  transition: background-color 0.2s, transform 0.2s;
-  z-index: 10;
-}
-
-.scroll-to-bottom:hover {
-  background-color: #333537;
-  transform: translate(-50%, -2px); /* Keeps it centered while giving it a little 'lift' */
-}
-
-.scroll-to-bottom:hover {
-  background-color: #333537;
-  transform: translateY(-2px);
-}
-
-/* Slightly transparent dark text for the orange user bubble */
 .message.user .message-timestamp {
   color: rgba(19, 19, 20, 0.6); 
 }
 
-/* Muted gray text for the dark assistant bubble */
 .message.assistant .message-timestamp {
   color: #879596; 
 }
 
+/* --- 3. INPUT AREA & CONTROLS --- */
 .input-area {
-  /* NEW: Dynamic padding */
+  position: relative;
   padding: 20px max(20px, calc((100% - 900px) / 2));
   background-color: #131314;
   border-top: none;
@@ -163,7 +129,32 @@
   cursor: not-allowed;
 }
 
-/* --- 3. TYPING ANIMATION --- */
+/* --- SCROLL TO BOTTOM BUTTON --- */
+.scroll-to-bottom {
+  position: absolute;
+  top: -60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #1e1f20;
+  color: #FF9900;
+  border: 1px solid #444746;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+  transition: background-color 0.2s; 
+  z-index: 10;
+}
+
+.scroll-to-bottom:hover {
+  background-color: #333537;
+}
+
+/* --- 4. TYPING ANIMATION --- */
 .typing-indicator {
   display: flex;
   gap: 4px;
@@ -188,21 +179,16 @@
 }
 
 @keyframes bounce {
-  0%, 80%, 100% { 
-    transform: scale(0); 
-  }
-  40% { 
-    transform: scale(1); 
-  }
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
 }
 
-/* --- 4. HOME SCREEN --- */
+/* --- 5. HOME SCREEN --- */
 .home-screen {
   flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  /* NEW: Dynamic padding */
   padding: 0 max(40px, calc((100% - 900px) / 2));
 }
 
@@ -222,7 +208,7 @@
   margin: 0;
 }
 
-/* --- 5. SUGGESTION CHIPS --- */
+/* --- 6. SUGGESTION CHIPS --- */
 .suggestion-chips {
   display: flex;
   flex-wrap: wrap;
