@@ -132,9 +132,9 @@
 /* --- SCROLL TO BOTTOM BUTTON --- */
 .scroll-to-bottom {
   position: absolute;
-  top: -60px;
+  top: -30px; /* CHANGED: Brings it much closer to the input box */
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%); 
   width: 40px;
   height: 40px;
   border-radius: 50%;
