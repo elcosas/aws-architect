@@ -16,6 +16,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       AWS_REGION: ${{ vars.AWS_REGION }}
       FRONTEND_BUCKET: ${{ vars.FRONTEND_BUCKET }}
+      CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
       BACKEND_LAMBDA_FUNCTION: ${{ vars.BACKEND_LAMBDA_FUNCTION }}
       PROMPTS_BUCKET: ${{ vars.PROMPTS_BUCKET }}
     steps:
@@ -40,6 +41,11 @@ jobs:
 
           if [[ -z "${FRONTEND_BUCKET:-}" ]]; then
             echo "Missing FRONTEND_BUCKET in repository variables."
+            exit 1
+          fi
+
+          if [[ -z "${CLOUDFRONT_DISTRIBUTION_ID:-}" ]]; then
+            echo "Missing CLOUDFRONT_DISTRIBUTION_ID in repository variables."
             exit 1
           fi
 
@@ -119,3 +125,6 @@ jobs:
           fi
 
           aws s3 sync prompts/ "s3://${PROMPTS_BUCKET}/" --delete --exclude "README.md" --exclude "readme.md"
+
+      - name: Invalidate CloudFront cache
+        run: aws cloudfront create-invalidation --distribution-id "${CLOUDFRONT_DISTRIBUTION_ID}" --paths "/*" --query 'Invalidation.Id' --output text
