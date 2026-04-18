@@ -4,21 +4,47 @@ from __future__ import annotations
 from collections import Counter
 
 
+ALLOWED_SERVICES = {
+    "S3",
+    "Lambda",
+    "EC2",
+    "Bedrock",
+    "SNS",
+    "API Gateway",
+}
+
+
+SERVICE_ALIASES = {
+    "s3": "S3",
+    "lambda": "Lambda",
+    "ec2": "EC2",
+    "bedrock": "Bedrock",
+    "amazon bedrock": "Bedrock",
+    "sns": "SNS",
+    "api gateway": "API Gateway",
+    "apigateway": "API Gateway",
+    "api-gateway": "API Gateway",
+}
+
+
 def _normalize_service_name(service_name: str) -> str:
-    return service_name.strip()
+    raw = service_name.strip()
+    if not raw:
+        return ""
+    return SERVICE_ALIASES.get(raw.lower(), raw)
 
 
 def validate_architecture_rules(services: list[str], connections: list[dict]) -> dict:
-    """Validate selected services and connections against hard-coded rules.
+    """Validate selected services and Mermaid connections against project rules.
 
     Args:
-        services: List of service names, e.g. ["S3", "Lambda", "DynamoDB"]
+        services: List of service names, e.g. ["S3", "Lambda", "API Gateway"]
         connections: List of dicts with "from", "to", "label" keys
 
     Returns:
         {
             "passed": bool,
-            "errors": [{"rule": "dependency", "message": "API Gateway requires Lambda..."}],
+            "errors": [{"rule": "allowed_services", "message": "Only approved services may be used..."}],
             "warnings": [{"rule": "orphan", "message": "S3 is not connected to anything"}]
         }
     """
@@ -28,38 +54,24 @@ def validate_architecture_rules(services: list[str], connections: list[dict]) ->
     errors: list[dict] = []
     warnings: list[dict] = []
 
-    required_dependencies = {
-        "API Gateway": ["Lambda"],
-        "CloudFront": ["S3"],
-        "SQS": ["Lambda"],
-        "SNS": ["Lambda"],
-    }
-
-    invalid_connections = {
-        ("CloudFront", "DynamoDB"),
-        ("SQS", "API Gateway"),
-        ("SNS", "DynamoDB"),
-        ("S3", "API Gateway"),
-        ("CloudFront", "Lambda"),
-    }
-
-    for service_name, dependencies in required_dependencies.items():
-        if service_name in service_set:
-            missing_dependencies = [dependency for dependency in dependencies if dependency not in service_set]
-            if missing_dependencies:
-                dependency_list = ", ".join(missing_dependencies)
-                errors.append(
-                    {
-                        "rule": "dependency",
-                        "message": f"{service_name} requires {dependency_list} to be present.",
-                    }
-                )
-
-    if "Lambda" not in service_set:
+    if not service_set:
         errors.append(
             {
-                "rule": "compute",
-                "message": "Every architecture must include at least one compute service: Lambda.",
+                "rule": "minimum_services",
+                "message": "Architecture must include at least one approved service.",
+            }
+        )
+
+    unsupported_services = sorted(service_name for service_name in service_set if service_name not in ALLOWED_SERVICES)
+    if unsupported_services:
+        errors.append(
+            {
+                "rule": "allowed_services",
+                "message": (
+                    "Only approved services are allowed: "
+                    f"{', '.join(sorted(ALLOWED_SERVICES))}. "
+                    f"Found unsupported services: {', '.join(unsupported_services)}."
+                ),
             }
         )
 
@@ -75,13 +87,22 @@ def validate_architecture_rules(services: list[str], connections: list[dict]) ->
         if target:
             connected_services.add(target)
 
-        connection_counts[(source, target)] += 1
+        if source and target:
+            connection_counts[(source, target)] += 1
 
-        if (source, target) in invalid_connections:
-            errors.append(
+        if source and source not in service_set:
+            warnings.append(
                 {
-                    "rule": "invalid_connection",
-                    "message": f"{source} should not connect directly to {target}.",
+                    "rule": "connection_reference",
+                    "message": f"Connection source '{source}' is not in selected services.",
+                }
+            )
+
+        if target and target not in service_set:
+            warnings.append(
+                {
+                    "rule": "connection_reference",
+                    "message": f"Connection target '{target}' is not in selected services.",
                 }
             )
 
@@ -95,7 +116,7 @@ def validate_architecture_rules(services: list[str], connections: list[dict]) ->
                 }
             )
 
-    for service_name in normalized_services:
+    for service_name in sorted(service_set):
         if service_name not in connected_services:
             warnings.append(
                 {
