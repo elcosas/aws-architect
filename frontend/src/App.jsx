@@ -1,120 +1,110 @@
 import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
 import './styles/App.css'
 
 function App() {
-  const [count, setCount] = useState(0)
+  // 1. Start with an empty array so the "Home Screen" shows first
+  const [messages, setMessages] = useState([]);
+  const [inputValue, setInputValue] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const awsServices = [
+    "Amazon Bedrock", "AWS Lambda", "Amazon S3", "API Gateway", 
+    "CloudFront", "CloudFormation", "DynamoDB", "AWS IAM"
+  ];
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!inputValue.trim()) return;
+
+    const userMessage = inputValue;
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setInputValue('');
+    setIsLoading(true);
+
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1000)); 
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: "I've processed your request using our connected AWS architecture. What would you like to build next?"
+      }]);
+    } catch (error) {
+      console.error("Error talking to backend:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  // Helper function to let users click a service button to auto-fill the input
+  const handleServiceClick = (service) => {
+    setInputValue(`Help me configure ${service}`);
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="chat-container">
+      
+      {/* Top Header - Only show if we are actively chatting */}
+      {messages.length > 0 && (
+        <header className="chat-header">
+          <h1>AWS Architect</h1>
+        </header>
+      )}
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+      {/* Main Content Area: Either Chat History OR the Home Greeting */}
+      {messages.length > 0 ? (
+        <main className="messages-area">
+          {messages.map((msg, index) => (
+            <div key={index} className={`message ${msg.role}`}>
+              <div className="message-content">{msg.content}</div>
+            </div>
+          ))}
+          {isLoading && (
+            <div className="message assistant">
+              <div className="message-content typing-indicator">
+                <span className="dot"></span>
+                <span className="dot"></span>
+                <span className="dot"></span>
+              </div>
+            </div>
+          )}
+        </main>
+      ) : (
+        <div className="home-screen">
+          <h2>Hi there,</h2>
+          <h1>Where should we start?</h1>
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+      )}
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+      {/* Input Area & Service Buttons */}
+      <footer className="input-area">
+        <form className="input-form" onSubmit={handleSendMessage}>
+          <input
+            type="text"
+            className="chat-input"
+            placeholder="Ask AWS Architect"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            disabled={isLoading}
+          />
+          <button type="submit" className="send-button" disabled={isLoading || !inputValue.trim()}>
+            Send
+          </button>
+        </form>
+
+        {/* The AWS Services moved directly under the input */}
+        <div className="suggestion-chips">
+          {awsServices.map(service => (
+            <button 
+              key={service} 
+              className="chip-button"
+              onClick={() => handleServiceClick(service)}
+            >
+              {service}
+            </button>
+          ))}
+        </div>
+      </footer>
+
+    </div>
   )
 }
 
