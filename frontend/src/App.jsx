@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import MermaidChart from './MermaidChart' // NEW: Import our chart component
 import './styles/App.css'
@@ -22,15 +22,16 @@ function App() {
 
   useEffect(() => {
     if (!isUserScrolledUp) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
     }
-  }, [messages, isLoading]);
+  }, [messages, isLoading, isUserScrolledUp]);
 
   const handleScroll = () => {
     const container = chatContainerRef.current;
     if (!container) return;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    setIsUserScrolledUp(distanceFromBottom > 50);
+    const nextIsScrolledUp = distanceFromBottom > 50;
+    setIsUserScrolledUp((prev) => (prev === nextIsScrolledUp ? prev : nextIsScrolledUp));
   };
 
   const scrollToBottom = () => {
@@ -79,6 +80,24 @@ Let me know if you want to tweak this!`;
     setInputValue(`Help me configure ${service}`);
   }
 
+  const markdownComponents = useMemo(
+    () => ({
+      code(props) {
+        const { children, className, ...rest } = props
+        const match = /language-(\w+)/.exec(className || '')
+        if (match && match[1] === 'mermaid') {
+          return <MermaidChart chart={String(children).replace(/\n$/, '')} />
+        }
+        return (
+          <code {...rest} className={className}>
+            {children}
+          </code>
+        )
+      },
+    }),
+    [],
+  )
+
   return (
     <div className="chat-container">
       
@@ -95,21 +114,7 @@ Let me know if you want to tweak this!`;
               <div className="message-content">
                 
                 {/* CHANGED: We tell ReactMarkdown how to handle <code> tags */}
-                <ReactMarkdown
-                  components={{
-                    code(props) {
-                      const {children, className, node, ...rest} = props
-                      // Check if the code block is labeled as "mermaid"
-                      const match = /language-(\w+)/.exec(className || '')
-                      if (match && match[1] === 'mermaid') {
-                        // If it is, render our Chart instead of text!
-                        return <MermaidChart chart={String(children).replace(/\n$/, '')} />
-                      }
-                      // Otherwise, just render it as a normal gray code block
-                      return <code {...rest} className={className}>{children}</code>
-                    }
-                  }}
-                >
+                <ReactMarkdown components={markdownComponents}>
                   {msg.content}
                 </ReactMarkdown>
 

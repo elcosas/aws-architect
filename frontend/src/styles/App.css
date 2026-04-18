@@ -31,6 +31,7 @@
   flex: 1;
   padding: 20px max(20px, calc((100% - 900px) / 2));
   overflow-y: auto;
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -266,6 +267,7 @@
   border-radius: 8px;
   border: 1px solid #444746;
   overflow-x: auto; /* Adds a scrollbar if the chart gets too wide for the bubble */
+  contain: content;
 }
 
 .mermaid-wrapper svg {

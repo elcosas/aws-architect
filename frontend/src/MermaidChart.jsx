@@ -1,32 +1,48 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 
-// Tell mermaid to use a dark theme to match our app
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'dark',
-  securityLevel: 'loose',
-});
+let isMermaidInitialized = false;
 
 const MermaidChart = ({ chart }) => {
   const [svgCode, setSvgCode] = useState('');
+  const chartIdRef = useRef(`mermaid-${Math.random().toString(36).slice(2, 9)}`);
 
   useEffect(() => {
+    if (!isMermaidInitialized) {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        securityLevel: 'loose',
+      });
+      isMermaidInitialized = true;
+    }
+
+    let isCancelled = false;
+
     const renderChart = async () => {
       if (chart) {
         try {
-          // Generate a unique ID for the chart
-          const id = `mermaid-${Math.random().toString(36).substring(2, 9)}`;
           // Have mermaid parse the text and give us back the SVG graphic
-          const { svg } = await mermaid.render(id, chart);
-          setSvgCode(svg);
+          const { svg } = await mermaid.render(chartIdRef.current, chart);
+          if (!isCancelled) {
+            setSvgCode(svg);
+          }
         } catch (error) {
           console.error("Mermaid rendering error:", error);
-          setSvgCode(`<div style="color: red;">Error rendering diagram</div>`);
+          if (!isCancelled) {
+            setSvgCode(`<div style="color: red;">Error rendering diagram</div>`);
+          }
         }
+      } else {
+        setSvgCode('');
       }
     };
+
     renderChart();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [chart]);
 
   // dangerouslySetInnerHTML is safe here because we trust the Mermaid library's output
@@ -35,4 +51,4 @@ const MermaidChart = ({ chart }) => {
   );
 };
 
-export default MermaidChart;
+export default memo(MermaidChart);
