@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import './styles/App.css'
 
 // Helper function to format the current time
@@ -7,15 +7,42 @@ const getCurrentTime = () => {
 };
 
 function App() {
-  // FIX: Start with an empty array so the "Home Screen" shows first!
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  
+  // NEW: State to track if the user has manually scrolled up
+  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
+  
+  // NEW: References for our scrolling logic
+  const messagesEndRef = useRef(null);
+  const chatContainerRef = useRef(null);
 
   const awsServices = [
     "Amazon Bedrock", "AWS Lambda", "Amazon S3", "API Gateway", 
     "CloudFront", "CloudFormation", "DynamoDB", "AWS IAM"
   ];
+
+  // NEW: Auto-scroll effect. Runs every time 'messages' or 'isLoading' changes.
+  useEffect(() => {
+    // Only auto-scroll if the user hasn't manually scrolled up
+    if (!isUserScrolledUp) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isLoading]);
+
+  // NEW: Detect when the user scrolls manually
+  const handleScroll = () => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+
+    // Calculate how far the user is from the absolute bottom of the container
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    
+    // If they are more than 50px away from the bottom, they have scrolled up.
+    // This disables auto-scroll until they scroll back down.
+    setIsUserScrolledUp(distanceFromBottom > 50);
+  };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -23,7 +50,6 @@ function App() {
 
     const userMessage = inputValue;
     
-    // Add user message with current time
     setMessages(prev => [...prev, { 
       role: 'user', 
       content: userMessage,
@@ -36,7 +62,6 @@ function App() {
     try {
       await new Promise(resolve => setTimeout(resolve, 1000)); 
       
-      // Add assistant response with current time
       setMessages(prev => [...prev, { 
         role: 'assistant', 
         content: "I've processed your request using our connected AWS architecture. What would you like to build next?",
@@ -56,16 +81,15 @@ function App() {
   return (
     <div className="chat-container">
       
-      {/* Top Header - Only show if we are actively chatting */}
       {messages.length > 0 && (
         <header className="chat-header">
           <h1>AWS Architect</h1>
         </header>
       )}
 
-      {/* Main Content Area: Either Chat History OR the Home Greeting */}
       {messages.length > 0 ? (
-        <main className="messages-area">
+        // NEW: Added ref and onScroll listener to the main chat area
+        <main className="messages-area" ref={chatContainerRef} onScroll={handleScroll}>
           {messages.map((msg, index) => (
             <div key={index} className={`message ${msg.role}`}>
               <div className="message-content">{msg.content}</div>
@@ -83,6 +107,8 @@ function App() {
               </div>
             </div>
           )}
+          {/* NEW: Invisible anchor div at the very bottom to scroll to */}
+          <div ref={messagesEndRef} />
         </main>
       ) : (
         <div className="home-screen">
@@ -91,7 +117,6 @@ function App() {
         </div>
       )}
 
-      {/* Input Area & Service Buttons */}
       <footer className="input-area">
         <form className="input-form" onSubmit={handleSendMessage}>
           <input
