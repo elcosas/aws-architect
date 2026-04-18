@@ -251,6 +251,24 @@
   font-family: monospace;
   font-size: 0.9em;
 }
+
 .message.user .message-content code {
   background-color: rgba(255, 255, 255, 0.2); /* Lighter background for the orange bubble */
+}
+
+/* --- 8. MERMAID DIAGRAM STYLING --- */
+.mermaid-wrapper {
+  display: flex;
+  justify-content: center;
+  background-color: #131314;
+  margin: 12px 0;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #444746;
+  overflow-x: auto; /* Adds a scrollbar if the chart gets too wide for the bubble */
+}
+
+.mermaid-wrapper svg {
+  max-width: 100%;
+  height: auto;
 }
