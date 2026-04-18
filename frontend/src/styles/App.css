@@ -63,6 +63,24 @@
   border-bottom-left-radius: 0;
 }
 
+/* --- TIMESTAMPS --- */
+.message-timestamp {
+  font-size: 11px;
+  margin-top: 6px;
+  text-align: right;
+  font-weight: 400;
+}
+
+/* Slightly transparent dark text for the orange user bubble */
+.message.user .message-timestamp {
+  color: rgba(19, 19, 20, 0.6); 
+}
+
+/* Muted gray text for the dark assistant bubble */
+.message.assistant .message-timestamp {
+  color: #879596; 
+}
+
 .input-area {
   /* NEW: Dynamic padding */
   padding: 20px max(20px, calc((100% - 900px) / 2));
