@@ -1,0 +1,16 @@
+# Backend dependencies (Python 3.12)
+# Install with: python -m pip install -r requirements.txt
+
+## Runtime dependencies
+# AWS SDK (Bedrock, DynamoDB, STS, CloudFormation)
+boto3>=1.34.0,<2.0.0
+
+# YAML handling for CloudFormation template composition
+PyYAML>=6.0.1,<7.0.0
+
+## Development / validation tools
+# CloudFormation template validation/linting
+cfn-lint>=0.87.0,<1.0.0
+
+# Testing
+pytest>=8.0.0,<9.0.0
