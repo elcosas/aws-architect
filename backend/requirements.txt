@@ -1,4 +1,4 @@
-# ArcForge backend dependencies (Python 3.12)
+# Backend dependencies (Python 3.12)
 # Install with: pip install -r requirements.txt
 
 # AWS SDK (Bedrock, DynamoDB, STS, CloudFormation)

@@ -1,4 +1,4 @@
-"""Validation utilities for ArcForge."""
+"""Validation utilities for backend."""
 
 from .architecture_rules import validate_architecture_rules
 

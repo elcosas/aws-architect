@@ -1,8 +1,6 @@
-"""Hard-coded validation rules for ArcForge architecture suggestions."""
+"""Hard-coded validation rules for architecture suggestions."""
 
 from __future__ import annotations
-
-
 from collections import Counter
 
 
