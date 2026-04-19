@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import re
 from typing import Optional, Tuple
 
 import boto3
@@ -177,6 +178,19 @@ def extract_used_services_from_mermaid(mermaid_code):
     return used
 
 
+def normalize_mermaid_code(mermaid_code: str) -> str:
+    if not isinstance(mermaid_code, str):
+        return mermaid_code
+
+    normalized = mermaid_code.replace("\r\n", "\n").replace("\r", "\n").strip()
+    normalized = re.sub(
+        r"(\]|\)|\}|\"|')\s{2,}([A-Za-z_][\w-]*)\s*(-\.->|-->|==>)",
+        r"\1\n\2 \3",
+        normalized,
+    )
+    return normalized
+
+
 def build_architecture_feedback(result: dict, selected_services: list[str], used_services: set[str]) -> str:
     feedback_lines: list[str] = []
 
@@ -255,6 +269,7 @@ def handler(event, context):
                 result = invoke_bedrock(SYSTEM_PROMPT, prompt, conversation_history=chat_history)
 
                 if result.get("mermaid_code"):
+                    result["mermaid_code"] = normalize_mermaid_code(result.get("mermaid_code", ""))
                     used_services = extract_used_services_from_mermaid(result.get("mermaid_code", ""))
                     selected_set = set(selected_services)
                     disallowed = sorted(service for service in used_services if service not in selected_set)
