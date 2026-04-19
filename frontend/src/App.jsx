@@ -1141,7 +1141,7 @@ function App() {
             </h2>
             <h1>Where should we start?</h1>
             <p className="home-screen-copy">
-              Describe your app and constraints. Cloud Weaver will propose an AWS architecture and diagram you can refine toward deployment.
+              Describe your app; Cloud Weaver designs your AWS architecture.
             </p>
           </div>
         )}
