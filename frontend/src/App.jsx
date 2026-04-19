@@ -12,6 +12,9 @@ const THEME_STORAGE_KEY = 'aws-architect.theme'
 const ASSISTANT_MERMAID_SEPARATOR = '\n\n<<<MERMAID_DIAGRAM>>>\n\n'
 const SETUP_TEMPLATE_URL = 'https://cloudweaver-user-templates.s3.us-west-2.amazonaws.com/cloudformation-user-setup.yml'
 const IAM_ROLE_ARN_PATTERN = /^arn:aws(-[a-z]+)?:iam::\d{12}:role\/[A-Za-z0-9+=,.@_\/-]{1,512}$/
+const DEFAULT_DEPLOY_REGION = 'us-east-1'
+const DEFAULT_DEPLOY_STACK_NAME_PREFIX = 'CloudWeaverStack'
+const DEFAULT_SETUP_STACK_NAME = 'ChatbotConnect'
 
 const getStoredTheme = () => {
   if (typeof window === 'undefined') {
@@ -202,6 +205,13 @@ const normalizeAssistantMessageContent = (content) => {
 };
 
 const isValidRoleArn = (value) => IAM_ROLE_ARN_PATTERN.test((value || '').trim())
+
+const buildDefaultStackName = (sessionId) => {
+  const sanitized = String(sessionId || '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(-8)
+  return `${DEFAULT_DEPLOY_STACK_NAME_PREFIX}-${sanitized || 'default'}`
+}
 
 function App() {
   const [messages, setMessages] = useState([]);
@@ -704,11 +714,13 @@ function App() {
       return;
     }
 
+    const targetStackName = buildDefaultStackName(sessionID);
+
     setIsDeployModalOpen(false);
     setIsLoading(true);
     setMessages(prev => [...prev, {
       role: 'user',
-      content: `Generate CloudFormation using Role ARN: ${normalizedRoleArn}`,
+      content: `Generate CloudFormation using Role ARN: ${normalizedRoleArn} (region: ${DEFAULT_DEPLOY_REGION}, stack: ${targetStackName})`,
       timestamp: getCurrentTime(),
     }]);
 
@@ -719,6 +731,9 @@ function App() {
       services: selectedServices,
       arn: normalizedRoleArn,
       roleArn: normalizedRoleArn,
+      region: DEFAULT_DEPLOY_REGION,
+      stackName: targetStackName,
+      setupStackName: DEFAULT_SETUP_STACK_NAME,
     }));
     startResponseTimeout();
   };
@@ -1213,7 +1228,7 @@ function App() {
                 className="btn-confirm"
                 onClick={handleGenerateCloudFormationWithArn}
               >
-                Generate CloudFormation
+                Deploy Services
               </button>
             </div>
           </div>
