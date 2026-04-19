@@ -274,3 +274,100 @@
   max-width: 100%;
   height: auto;
 }
+
+/* --- 9. MODALS --- */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(2px);
+}
+
+.modal-content {
+  background-color: #1e1f20;
+  border: 1px solid #444746;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 400px;
+  padding: 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal-content h3 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: #e3e3e3;
+}
+
+.modal-content p {
+  color: #879596;
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.form-group {
+  margin-bottom: 20px; /* Added more space between the two different input groups */
+}
+
+.form-group label {
+  display: block; /* This forces the input box to the next line */
+  font-size: 13px;
+  color: #e3e3e3;
+  margin-bottom: 10px; /* <--- THIS adds the extra space you asked for! */
+}
+
+.modal-input {
+  width: 100%;
+  padding: 10px 12px;
+  background-color: #131314;
+  border: 1px solid #444746;
+  border-radius: 6px;
+  color: white;
+  box-sizing: border-box;
+}
+
+.modal-input:focus {
+  outline: none;
+  border-color: #FF9900;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.btn-cancel {
+  background-color: transparent;
+  color: #e3e3e3;
+  border: 1px solid #444746;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn-cancel:hover {
+  background-color: #333537;
+}
+
+.btn-confirm {
+  background-color: #FF9900;
+  color: #131314;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.btn-confirm:hover {
+  background-color: #EC7211;
+}

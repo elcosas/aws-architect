@@ -7,16 +7,19 @@ const getCurrentTime = () => {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-// Wired up to the real API Gateway!
-const WS_URL = 'wss://evlh44mizl.execute-api.us-west-2.amazonaws.com/production';
-
 function App() {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
-  const [ws, setWs] = useState(null);
   
+  // Modal States
+  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+  const [awsCredentials, setAwsCredentials] = useState({
+    accessKeyId: '',
+    secretAccessKey: ''
+  });
+
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
 
@@ -24,41 +27,6 @@ function App() {
     "Amazon Bedrock", "AWS Lambda", "Amazon S3", "API Gateway", 
     "CloudFront", "CloudFormation", "DynamoDB", "AWS IAM"
   ];
-
-  // --- WEBSOCKET SETUP ---
-  useEffect(() => {
-    const socket = new WebSocket(WS_URL);
-    
-    socket.onopen = () => console.log('✅ WebSocket Connected!');
-    
-    socket.onmessage = (event) => {
-      setIsLoading(false);
-      try {
-        const data = JSON.parse(event.data);
-        if (data.mermaid_code) {
-          const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\``;
-          setMessages(prev => [...prev, { role: 'assistant', content: botResponse, timestamp: getCurrentTime() }]);
-        } else if (data.error) {
-          setMessages(prev => [...prev, { role: 'assistant', content: `**Backend Error:** ${data.error}`, timestamp: getCurrentTime() }]);
-        }
-      } catch (err) { 
-        console.error("Message parse error:", err); 
-      }
-    };
-
-    socket.onerror = (error) => {
-      console.error("❌ WebSocket Error:", error);
-      setIsLoading(false);
-    };
-
-    socket.onclose = () => {
-      console.warn("⚠️ WebSocket Disconnected!");
-      setIsLoading(false); 
-    };
-
-    setWs(socket);
-    return () => socket.close();
-  }, []);
 
   // --- UI LOGIC ---
   useEffect(() => {
@@ -72,43 +40,55 @@ function App() {
     setIsUserScrolledUp(distance > 50);
   };
 
-const handleSendMessage = (e) => {
-    e.preventDefault();
-    if (!inputValue.trim() || !ws) return;
+  const scrollToBottom = () => { 
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
+    setIsUserScrolledUp(false); 
+  };
 
-    // NEW: Check if the WebSocket is actually open and alive before doing anything!
-    if (ws.readyState !== WebSocket.OPEN) {
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: `**Connection Error:** I cannot reach the AWS backend. Please make sure the server is online.`, 
-        timestamp: getCurrentTime() 
-      }]);
-      return;
-    }
+  // 1. FAKED SEND MESSAGE FLOW
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (!inputValue.trim()) return;
     
     const userMessage = inputValue;
     setMessages(prev => [...prev, { role: 'user', content: userMessage, timestamp: getCurrentTime() }]);
     setInputValue('');
     setIsLoading(true);
     
-    ws.send(JSON.stringify({ action: "sendMessage", userInput: userMessage, services: [] }));
+    // FAKE THE BACKEND DELAY
+    setTimeout(() => {
+      setIsLoading(false);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: "Here is the architecture based on your request:\n\n```mermaid\ngraph LR\nUser --> API[API Gateway]\nAPI --> Lambda[AWS Lambda]\nLambda --> DB[(DynamoDB)]\n```", 
+        timestamp: getCurrentTime() 
+      }]);
+    }, 1500);
   };
 
-  const handleConfirmArchitecture = () => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  // 2. FAKED DEPLOY FLOW FROM POPUP
+  const handleFinalDeploy = (e) => {
+    e.preventDefault();
+    setIsDeployModalOpen(false); // Close the popup
     
     setMessages(prev => [...prev, { 
       role: 'user', 
-      content: "I approve this architecture. Please deploy it.", 
+      content: "I approve this architecture. Please deploy it using my provided AWS Credentials.", 
       timestamp: getCurrentTime() 
     }]);
     setIsLoading(true);
 
-    // Send a special action to the backend to trigger Step 7
-    ws.send(JSON.stringify({ 
-      action: "confirmArchitecture", 
-      userInput: "approved" 
-    }));
+    // FAKE THE FINAL BACKEND DEPLOYMENT RESPONSE
+    setTimeout(() => {
+      setIsLoading(false);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: "🚀 **Deployment Initiated!** Assuming role and sending CloudFormation templates to AWS...", 
+        timestamp: getCurrentTime() 
+      }]);
+    }, 2000);
+
+    setAwsCredentials({ accessKeyId: '', secretAccessKey: '' });
   };
 
   const handleServiceClick = (service) => setInputValue(`Help me configure ${service}`);
@@ -131,10 +111,12 @@ const handleSendMessage = (e) => {
                       : <code {...rest} className={className}>{children}</code>
                   }
                 }}>{msg.content}</ReactMarkdown>
+                
+                {/* Opens the Popup instead of sending immediately */}
                 {index === messages.length - 1 && msg.role === 'assistant' && msg.content.includes('```mermaid') && (
                   <div style={{ marginTop: '12px', textAlign: 'right' }}>
                     <button 
-                      onClick={handleConfirmArchitecture} 
+                      onClick={() => setIsDeployModalOpen(true)} 
                       style={{
                         backgroundColor: '#238636', 
                         color: 'white', 
@@ -172,6 +154,46 @@ const handleSendMessage = (e) => {
           {awsServices.map(service => <button key={service} className="chip-button" onClick={() => handleServiceClick(service)}>{service}</button>)}
         </div>
       </footer>
+
+      {/* The AWS Credentials Popup Modal */}
+      {isDeployModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h3>Deploy Architecture</h3>
+            <p>Please provide your AWS credentials so we can assume the role and deploy the CloudFormation template.</p>
+            
+            <form onSubmit={handleFinalDeploy}>
+              <div className="form-group">
+                <label>AWS Access Key ID</label>
+                <input 
+                  type="text" 
+                  className="modal-input" 
+                  required
+                  value={awsCredentials.accessKeyId}
+                  onChange={(e) => setAwsCredentials({...awsCredentials, accessKeyId: e.target.value})}
+                  placeholder="AKIAIOSFODNN7EXAMPLE" 
+                />
+              </div>
+              <div className="form-group">
+                <label>AWS Secret Access Key</label>
+                <input 
+                  type="password" 
+                  className="modal-input" 
+                  required
+                  value={awsCredentials.secretAccessKey}
+                  onChange={(e) => setAwsCredentials({...awsCredentials, secretAccessKey: e.target.value})}
+                  placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" 
+                />
+              </div>
+              
+              <div className="modal-actions">
+                <button type="button" className="btn-cancel" onClick={() => setIsDeployModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn-confirm">Deploy to AWS</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
