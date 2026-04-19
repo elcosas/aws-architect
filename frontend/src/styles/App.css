@@ -12,7 +12,7 @@
   --accent-purple: #aa3bff;
   --bg-primary: #131314;
   --text-primary: #f3f6fb;
-  --text-muted: #bec8d4;
+  --text-muted: #d0d9e5;
   --header-start: #1e1f20;
   --header-end: #2a1a2e;
   --header-border: #ff9900;
@@ -48,8 +48,8 @@
   --accent-orange-strong: #cf6f00;
   --accent-purple: #7c3aed;
   --bg-primary: #f8fafc;
-  --text-primary: #0f172a;
-  --text-muted: #1f2937;
+  --text-primary: #0b1220;
+  --text-muted: #172033;
   --header-start: #f4eeff;
   --header-end: #fff4e6;
   --header-border: #e88300;
@@ -393,7 +393,7 @@
 }
 
 .message.user .message-timestamp {
-  color: rgba(19, 19, 20, 0.6); 
+  color: rgba(10, 10, 12, 0.82);
 }
 
 .message.assistant .message-timestamp {
@@ -484,7 +484,7 @@
   border: 1px solid transparent;
   background: transparent;
   border-radius: 8px;
-  color: #e3e3e3;
+  color: #f3f6fb;
   text-align: left;
   padding: 8px 10px;
   font-size: 13px;
@@ -541,7 +541,6 @@
 
 .send-button {
   background: linear-gradient(135deg, var(--send-btn-start) 0%, var(--send-btn-end) 100%);
-  color: #131314;
   border: none;
   border-radius: 10px;
   padding: 0 calc(18px * var(--controls-scale));
@@ -558,10 +557,17 @@
   box-shadow: 0 6px 20px rgba(255, 153, 0, 0.4);
 }
 
+.send-button,
 .send-button:disabled {
-  background: linear-gradient(135deg, #444746 0%, #333537 100%);
-  color: #879596;
+  color: #000000;
+  -webkit-text-fill-color: #000000;
+  opacity: 1;
+}
+
+.send-button:disabled {
+  background: linear-gradient(135deg, var(--send-btn-start) 0%, var(--send-btn-end) 100%);
   cursor: not-allowed;
+  filter: saturate(0.85) brightness(0.95);
   box-shadow: none;
 }
 
@@ -667,7 +673,7 @@
 .services-panel {
   margin-top: calc(8px * var(--controls-scale));
   margin-bottom: 0;
-  padding: calc(8px * var(--controls-scale));
+  padding: calc(6px * var(--controls-scale));
   border: 1px solid var(--panel-border);
   border-radius: 14px;
   background: var(--panel-bg);
@@ -705,8 +711,24 @@
   gap: calc(8px * var(--controls-scale));
 }
 
+.services-grid--seven {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+
+.services-grid--seven .service-chip-row {
+  grid-column: span 2;
+}
+
 .services-grid--seven .service-chip-row:nth-child(5) {
-  grid-column: 2;
+  grid-column: 2 / span 2;
+}
+
+.services-grid--seven .service-chip-row:nth-child(6) {
+  grid-column: 4 / span 2;
+}
+
+.services-grid--seven .service-chip-row:nth-child(7) {
+  grid-column: 6 / span 2;
 }
 
 .service-chip-row {
@@ -787,10 +809,25 @@
   .services-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .services-grid--seven {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .services-grid--seven .service-chip-row,
+  .services-grid--seven .service-chip-row:nth-child(5),
+  .services-grid--seven .service-chip-row:nth-child(6),
+  .services-grid--seven .service-chip-row:nth-child(7) {
+    grid-column: auto;
+  }
 }
 
 @media (max-width: 560px) {
   .services-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .services-grid--seven {
     grid-template-columns: 1fr;
   }
 }
@@ -987,7 +1024,7 @@
   background-color: #1b1d22;
   border-color: #3a3f46;
   color: #aeb8c4;
-  opacity: 0.65;
+  opacity: 0.9;
 }
 
 .chip-button--unused.chip-button--selected {
@@ -1007,7 +1044,7 @@
   background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.3) 100%);
   border-color: #22c55e;
   color: #dcfce7;
-  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.28), 0 4px 12px rgba(34, 197, 94, 0.18);
+  opacity: 0.9;
 }
 
 .chip-button--used:hover {
@@ -1114,6 +1151,7 @@
 .reasoning-column li {
   margin-bottom: 6px;
   font-size: 13px;
+  color: var(--text-primary);
   line-height: 1.45;
 }
 
@@ -1370,11 +1408,11 @@
 .app-meta-footer {
   display: flex;
   flex: 0 0 auto;
-  min-height: 28px;
+  min-height: 24px;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 4px 12px 6px;
+  padding: 2px 12px 3px;
   border-top: 1px solid var(--footer-border);
   background: var(--footer-bg);
   color: var(--text-muted);
@@ -1489,7 +1527,7 @@
 }
 
 .theme-light .mode-option {
-  color: #334155;
+  color: #1f2937;
 }
 
 .theme-light .service-info-trigger {
@@ -1507,6 +1545,7 @@
   background-color: #f8fafc;
   border-color: #b8c4d4;
   color: #334155;
+  opacity: 1;
 }
 
 .theme-light .chip-button--unused.chip-button--selected {
