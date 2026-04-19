@@ -65,6 +65,10 @@ function App() {
       setWs(null);
       setIsLoading(false);
       console.log('🧪 Running in TEST MODE. WebSocket is disabled.');
+      if (ws) {
+        ws.close();
+        setWs(null);
+      }
       return; 
     }
 
