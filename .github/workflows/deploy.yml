@@ -13,13 +13,15 @@ jobs:
     permissions:
       contents: read
     env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       AWS_REGION: ${{ vars.AWS_REGION }}
       FRONTEND_BUCKET: ${{ vars.FRONTEND_BUCKET }}
+      CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
       BACKEND_LAMBDA_FUNCTION: ${{ vars.BACKEND_LAMBDA_FUNCTION }}
       PROMPTS_BUCKET: ${{ vars.PROMPTS_BUCKET }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Validate required deployment config
         env:
@@ -42,8 +44,13 @@ jobs:
             exit 1
           fi
 
+          if [[ -z "${CLOUDFRONT_DISTRIBUTION_ID:-}" ]]; then
+            echo "Missing CLOUDFRONT_DISTRIBUTION_ID in repository variables."
+            exit 1
+          fi
+
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -54,9 +61,9 @@ jobs:
         run: aws sts get-caller-identity
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -118,3 +125,6 @@ jobs:
           fi
 
           aws s3 sync prompts/ "s3://${PROMPTS_BUCKET}/" --delete --exclude "README.md" --exclude "readme.md"
+
+      - name: Invalidate CloudFront cache
+        run: aws cloudfront create-invalidation --distribution-id "${CLOUDFRONT_DISTRIBUTION_ID}" --paths "/*" --query 'Invalidation.Id' --output text
