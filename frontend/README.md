@@ -3,8 +3,8 @@
 Frontend for ArcForge / AWS-Architect.
 
 This application is a React + Vite chat interface where a user types a project
-idea, views assistant responses, and sees Mermaid diagrams rendered directly in
-the UI.
+idea, views assistant responses, and sees Mermaid diagrams and CloudFormation 
+code rendered directly in the UI.
 
 ## Folder structure
 
@@ -34,28 +34,28 @@ frontend/
 - Lets the user type a project idea into the input box.
 - Shows assistant replies in Markdown using `react-markdown`.
 - Renders Mermaid code blocks using a dedicated `MermaidChart` component.
+- Renders generated CloudFormation YAML in syntax-highlighted code blocks.
 - Includes suggestion chips to quickly seed common AWS prompts.
 - Supports auto-scrolling, typing indicators, and a scroll-to-bottom control.
 
 ## Current behavior
 
-At the moment, the frontend simulates an assistant response locally so the UI
-can be developed before the full backend integration is wired up. The response
-includes Mermaid flowchart code that is rendered in the chat area.
+The frontend communicates with the AWS backend exclusively over WebSockets to ensure real-time streaming of architecture generation and validation.
 
 The current app flow is:
 
-1. User types a prompt into the chat input.
-2. The message is added to the chat history.
-3. The app shows a temporary loading/typing state.
-4. A sample assistant response is added.
-5. Any Mermaid code block in the response is rendered as an SVG diagram.
-
+1. App establishes a WebSocket connection to AWS API Gateway on load.
+2. User types a prompt into the chat input.
+3. The message is sent through the WebSocket to the Lambda backend.
+4. The app shows a temporary loading/typing state.
+5. The backend responds with Mermaid diagram text and reasoning.
+6. The frontend renders the Mermaid code block as an SVG diagram.
+7. The user can approve the diagram, which triggers another WebSocket request to generate CloudFormation code.
 ## Main components
 
 - `src/App.jsx`
-	- Main chat experience and message state management.
-	- Handles prompt entry, sample assistant responses, scrolling, and Markdown
+	- Main chat experience, session state management, and WebSocket communication.
+	- Handles prompt entry, live AWS responses, scrolling, and Markdown
 		rendering.
 - `src/MermaidChart.jsx`
 	- Uses the Mermaid library to convert diagram text into SVG.
@@ -111,8 +111,7 @@ npm ci
 
 ## Notes
 
-- The frontend currently uses a mocked assistant response while backend API
-	wiring is still being completed.
+- The frontend requires `VITE_WS_URL` to be set in your environment to connect to the AWS backend. If it fails to connect, you can fall back to test mode by setting `VITE_TEST_MODE=true`.
 - The Mermaid renderer expects fenced code blocks labeled as `mermaid`.
 - Keep the UI fast and stable by avoiding unnecessary re-renders in the chat and
 	diagram components.

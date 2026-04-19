@@ -4,6 +4,8 @@ Backend services for ArcForge / AWS-Architect.
 This backend receives a user project idea from the frontend through API Gateway,
 calls Amazon Bedrock to generate a Mermaid architecture diagram, validates the
 diagram and later CloudFormation output, and returns structured results to the
+frontend via API Gateway WebSockets.
+
 ## Folder structure
 
 ```text
@@ -14,6 +16,7 @@ backend/
 │   ├── bedrock_client.py
 │   ├── cfn-prompt.txt
 │   ├── handler.py
+│   ├── session_store.py
 │   ├── system-prompt.txt
 │   └── test_local.py
 └── validation/
@@ -30,6 +33,9 @@ The backend is organized around three main responsibilities:
   - `lambda/handler.py` is the API Gateway Lambda entry point.
   - It reads request payloads, builds prompts, and routes requests for diagram
     generation or CloudFormation generation.
+- **Session management**
+  - `lambda/session_store.py` integrates with DynamoDB.
+  - It loads and saves multi-turn chat history to maintain conversational context.
 - **Bedrock integration**
   - `lambda/bedrock_client.py` calls Amazon Bedrock using `boto3`.
   - The Bedrock model is configured to return structured output for Mermaid or
