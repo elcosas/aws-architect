@@ -1212,7 +1212,6 @@ function App() {
                 type="button"
                 className="btn-confirm"
                 onClick={handleGenerateCloudFormationWithArn}
-                disabled={!hasValidRoleArn}
               >
                 Generate CloudFormation
               </button>
