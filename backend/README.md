@@ -1,6 +1,6 @@
-# AWS-Architect Backend
+# Cloud Weaver Backend
 
-Backend services for ArcForge / AWS-Architect.
+Backend services for Cloud Weaver.
 
 This backend is being built as a serverless workflow that takes a user prompt,
 uses Amazon Bedrock to generate Mermaid architecture diagrams, and validates the

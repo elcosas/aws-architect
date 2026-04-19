@@ -266,7 +266,7 @@ function App() {
   return (
     <div className="chat-container">
       <header className="chat-header">
-        <h1>AWS Architect</h1>
+        <h1>Cloud Weaver</h1>
       </header>
 
       <div className="chat-body-scroll" ref={chatContainerRef} onScroll={handleScroll}>
@@ -353,7 +353,7 @@ function App() {
           )}
         </div>
         <form className="input-form" onSubmit={handleSendMessage}>
-          <input type="text" className="chat-input" placeholder="Ask AWS Architect" value={inputValue} onChange={(e) => setInputValue(e.target.value)} disabled={isLoading} />
+          <input type="text" className="chat-input" placeholder="Ask Cloud Weaver" value={inputValue} onChange={(e) => setInputValue(e.target.value)} disabled={isLoading} />
           <button type="submit" className="send-button" disabled={isLoading || !inputValue.trim()}>Send</button>
         </form>
         <div className="suggestion-chips">
