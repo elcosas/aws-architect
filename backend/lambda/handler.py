@@ -4,7 +4,7 @@ import os
 import re
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, WaiterError
 
 from bedrock_client import invoke_bedrock
 from session_store import (
@@ -431,10 +431,26 @@ def deploy_cloudformation_stack(cfn_client, stack_name: str, template_body: str)
         if existing_status in {"ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "CREATE_FAILED"}:
             # Recover from failed stack states so retried deployments can proceed automatically.
             cfn_client.delete_stack(StackName=stack_name)
-            cfn_client.get_waiter("stack_delete_complete").wait(
-                StackName=stack_name,
-                WaiterConfig={"Delay": 5, "MaxAttempts": 120},
-            )
+            try:
+                cfn_client.get_waiter("stack_delete_complete").wait(
+                    StackName=stack_name,
+                    WaiterConfig={"Delay": 5, "MaxAttempts": 120},
+                )
+            except WaiterError:
+                residual_stack = get_existing_stack(cfn_client, stack_name)
+                residual_status = (residual_stack or {}).get("StackStatus")
+                if not residual_stack:
+                    pass
+                elif isinstance(residual_status, str) and residual_status.endswith("_IN_PROGRESS"):
+                    raise RuntimeError(
+                        "Previous failed deployment stack cleanup is still in progress. "
+                        "Please retry in a few minutes."
+                    )
+                else:
+                    raise RuntimeError(
+                        "Previous failed deployment stack could not be cleaned up automatically. "
+                        "Delete the stack manually in CloudFormation and retry."
+                    )
             existing_stack = None
 
         if existing_stack:
@@ -450,10 +466,42 @@ def deploy_cloudformation_stack(cfn_client, stack_name: str, template_body: str)
             OnFailure="DELETE",
         )
         stack_id = create_response.get("StackId")
-        cfn_client.get_waiter("stack_create_complete").wait(
-            StackName=stack_name,
-            WaiterConfig={"Delay": 5, "MaxAttempts": 120},
-        )
+        try:
+            cfn_client.get_waiter("stack_create_complete").wait(
+                StackName=stack_name,
+                WaiterConfig={"Delay": 5, "MaxAttempts": 120},
+            )
+        except WaiterError:
+            latest_stack = get_existing_stack(cfn_client, stack_name)
+            latest_status = (latest_stack or {}).get("StackStatus")
+
+            if latest_status == "CREATE_COMPLETE":
+                operation = "create"
+                return {
+                    "stack_id": (latest_stack or {}).get("StackId") or stack_id,
+                    "operation": operation,
+                    "status": latest_status,
+                }
+
+            if not latest_stack:
+                raise RuntimeError(
+                    "Deployment stack was not created. CloudFormation may have auto-deleted it after create failure."
+                )
+
+            if latest_status in {"ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "CREATE_FAILED"}:
+                raise RuntimeError(
+                    "Deployment creation failed. Review CloudFormation stack events in AWS Console and retry after fixes."
+                )
+
+            if isinstance(latest_status, str) and latest_status.endswith("_IN_PROGRESS"):
+                raise RuntimeError(
+                    "Deployment is still in progress. Check CloudFormation stack events and wait for completion."
+                )
+
+            raise RuntimeError(
+                f"Deployment reached unexpected stack status {latest_status}. "
+                "Review CloudFormation stack events and retry."
+            )
         operation = "create"
 
     final_stack = cfn_client.describe_stacks(StackName=stack_name).get("Stacks", [{}])[0]
@@ -506,6 +554,14 @@ def user_facing_deployment_error(error: Exception) -> str:
 
     if "accessdenied" in lowered or "not authorized" in lowered:
         return "Deployment authorization failed. Verify IAM trust policy, permissions, and ExternalID configuration."
+    if "cleanup is still in progress" in lowered:
+        return "A previous failed deployment cleanup is still running. Retry in a few minutes."
+    if "could not be cleaned up automatically" in lowered:
+        return "A previous failed deployment stack needs manual cleanup. Delete the stack in CloudFormation, then retry."
+    if "deployment stack was not created" in lowered:
+        return "Deployment did not create a stack. Review CloudFormation stack events and retry."
+    if "deployment is still in progress" in lowered:
+        return "Deployment is still in progress. Check CloudFormation stack events and wait for completion."
     if "update_rollback_complete" in lowered:
         return "Deployment update failed and was rolled back. Review CloudFormation stack events in AWS Console and retry after fixes."
     if "create_failed" in lowered or "rollback_complete" in lowered:
