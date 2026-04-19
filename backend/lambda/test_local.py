@@ -77,7 +77,8 @@ cfn_event = {
     },
     "body": json.dumps({
         "sessionID": session_id,
-        "userInput": "Generate CloudFormation for the latest approved architecture."
+        "userInput": "Generate CloudFormation for the latest approved architecture.",
+        "arn": "arn:aws:iam::123456789012:role/ChatbotIntegrationRole-ChatbotConnect"
     })
 }
 
