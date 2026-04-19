@@ -88,6 +88,18 @@ const getCurrentTime = () => {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
+const formatLatencyLabel = (latencyMs) => {
+  if (!Number.isFinite(latencyMs) || latencyMs < 0) return null
+
+  if (latencyMs < 1000) {
+    return `${Math.round(latencyMs)}ms`
+  }
+
+  const seconds = latencyMs / 1000
+  const decimals = seconds < 10 ? 2 : 1
+  return `${seconds.toFixed(decimals)}s`
+}
+
 const SERVICE_MATCHERS = {
   'Amazon Bedrock': /\bbedrock\b|br\b/i,
   'AWS Lambda': /\blambda\b|\bfn\b/i,
@@ -263,13 +275,14 @@ function App() {
     return () => window.clearInterval(intervalId)
   }, [])
 
-  const simulateStreaming = (fullText, analysis) => {
+  const simulateStreaming = (fullText, analysis, latencyLabel = null) => {
     setIsLoading(false);
     const timestamp = getCurrentTime();
     setMessages(prev => [...prev, {
       role: "assistant",
       content: "",
       analysis: null,
+      latency: latencyLabel,
       timestamp,
       isStreaming: true
     }]);
@@ -312,6 +325,7 @@ function App() {
   const appMetaFooterRef = useRef(null);
   const modeMenuRef = useRef(null);
   const responseTimeoutRef = useRef(null);
+  const responseStartedAtRef = useRef(null);
 
   const MIN_CHAT_BODY_HEIGHT = 220;
   const MIN_INPUT_SECTION_HEIGHT = 220;
@@ -325,6 +339,17 @@ function App() {
       responseTimeoutRef.current = null;
     }
   };
+
+  const markResponseStart = () => {
+    responseStartedAtRef.current = Date.now()
+  }
+
+  const consumeResponseLatencyLabel = () => {
+    const startedAt = responseStartedAtRef.current
+    responseStartedAtRef.current = null
+    if (!startedAt) return null
+    return formatLatencyLabel(Date.now() - startedAt)
+  }
 
   const toggleAnalysisDetails = (messageIndex) => {
     setExpandedAnalysisByMessage((prev) => ({
@@ -363,9 +388,11 @@ function App() {
         {
           role: 'assistant',
           content: '**Timeout Error:** The backend did not respond in time. This is usually an AWS backend issue (Lambda/Bedrock/permissions), not your browser.',
+          latency: formatLatencyLabel(45000),
           timestamp: getCurrentTime(),
         },
       ]);
+      responseStartedAtRef.current = null
     }, 45000);
   };
 
@@ -485,6 +512,7 @@ function App() {
       setIsLoading(false);
       try {
         const data = JSON.parse(event.data);
+        const responseLatency = consumeResponseLatencyLabel();
 
         if (typeof data.sessionID === 'string' && data.sessionID.trim()) {
           const returnedSessionID = data.sessionID.trim();
@@ -499,14 +527,14 @@ function App() {
 
         if (data.mermaid_code) {
           const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\``;
-          simulateStreaming(botResponse, data.analysis || null);
+          simulateStreaming(botResponse, data.analysis || null, responseLatency);
         } else if (data.cloudformation_yaml) {
           const botResponse = `Here is your CloudFormation template:\n\n\`\`\`yaml\n${data.cloudformation_yaml}\n\`\`\``;
-          simulateStreaming(botResponse, null);
+          simulateStreaming(botResponse, null, responseLatency);
         } else if (data.error) {
-          setMessages(prev => [...prev, { role: 'assistant', content: `**Backend Error:** ${data.error}`, timestamp: getCurrentTime() }]);
+          setMessages(prev => [...prev, { role: 'assistant', content: `**Backend Error:** ${data.error}`, latency: responseLatency, timestamp: getCurrentTime() }]);
         } else if (data.message) {
-          simulateStreaming(normalizeAssistantMessageContent(data.message), null);
+          simulateStreaming(normalizeAssistantMessageContent(data.message), null, responseLatency);
         } else {
           console.log('Received message from backend:', data);
         }
@@ -519,6 +547,7 @@ function App() {
       console.error(`❌ WebSocket Error while connecting to ${WS_URL}:`, error);
       clearResponseTimeout();
       setIsLoading(false);
+      responseStartedAtRef.current = null
     };
 
     socket.onclose = (event) => {
@@ -527,6 +556,7 @@ function App() {
       );
       clearResponseTimeout();
       setIsLoading(false); 
+      responseStartedAtRef.current = null
     };
 
     setWs(socket);
@@ -687,6 +717,7 @@ function App() {
     setMessages(prev => [...prev, { role: 'user', content: userMessage, timestamp: getCurrentTime() }]);
     setInputValue('');
     setIsLoading(true);
+    markResponseStart();
 
     if (isTestMode) {
       // 🧪 Fake the backend response
@@ -721,10 +752,12 @@ function App() {
         }
 
         setIsLoading(false);
+        const responseLatency = consumeResponseLatencyLabel();
         setMessages(prev => [...prev, { 
           role: 'assistant', 
           content: "Here is your architecture:\n\n```mermaid\ngraph LR\nUser --> API[API Gateway]\nAPI --> Lambda[AWS Lambda]\nLambda --> DB[(DynamoDB)]\n```", 
           analysis: mockAnalysis,
+          latency: responseLatency,
           timestamp: getCurrentTime() 
         }]);
       }, 1500);
@@ -846,6 +879,7 @@ function App() {
 
     setIsDeployModalOpen(false);
     setIsLoading(true);
+    markResponseStart();
     setMessages(prev => [...prev, {
       role: 'user',
       content: `Generate CloudFormation using Role ARN: ${normalizedRoleArn} (region: ${DEFAULT_DEPLOY_REGION}, stack: ${targetStackName})`,
@@ -1117,7 +1151,12 @@ function App() {
                   </div>
                 )}
               </div>
-              {msg.timestamp && <div className="message-timestamp">{msg.timestamp}</div>}
+              {(msg.timestamp || msg.latency) && (
+                <div className="message-timestamp">
+                  {msg.timestamp || '—'}
+                  {msg.latency ? ` | ${msg.latency}` : ''}
+                </div>
+              )}
             </div>
           ))}
           {isLoading && (
