@@ -278,8 +278,10 @@ function App() {
 
   const simulateStreaming = (fullText, analysis, latencyLabel = null) => {
     setIsLoading(false);
+    const messageId = `assistant-stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const timestamp = getCurrentTime();
     setMessages(prev => [...prev, {
+      messageId,
       role: "assistant",
       content: "",
       analysis: null,
@@ -297,27 +299,37 @@ function App() {
       const currentText = fullText.slice(0, currentIndex);
       
       setMessages(prev => {
-        const newMessages = [...prev];
-        const lastIndex = newMessages.length - 1;
+        const isDone = currentIndex >= fullText.length
         
-        if (currentIndex >= fullText.length) {
+        if (isDone) {
           clearInterval(intervalId);
-          newMessages[lastIndex] = {
-            ...newMessages[lastIndex],
-            content: fullText,
-            analysis: analysis,
-            isStreaming: false
-          };
-        } else {
-          newMessages[lastIndex] = {
-            ...newMessages[lastIndex],
-            content: currentText
-          };
+          streamIntervalIdsRef.current.delete(intervalId)
         }
-        return newMessages;
+
+        return prev.map((message) => {
+          if (message.messageId !== messageId) return message
+
+          if (isDone) {
+            return {
+              ...message,
+              content: fullText,
+              analysis,
+              isStreaming: false,
+            }
+          }
+
+          return {
+            ...message,
+            content: currentText,
+          }
+        })
       });
     }, delay);
+
+    streamIntervalIdsRef.current.add(intervalId)
   };
+
+  useEffect(() => () => clearStreamingIntervals(), [])
 
   const appContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -327,6 +339,7 @@ function App() {
   const modeMenuRef = useRef(null);
   const responseTimeoutRef = useRef(null);
   const responseStartedAtRef = useRef(null);
+  const streamIntervalIdsRef = useRef(new Set());
 
   const MIN_CHAT_BODY_HEIGHT = 220;
   const MIN_INPUT_SECTION_HEIGHT = 220;
@@ -350,6 +363,11 @@ function App() {
     responseStartedAtRef.current = null
     if (!startedAt) return null
     return formatLatencyLabel(Date.now() - startedAt)
+  }
+
+  const clearStreamingIntervals = () => {
+    streamIntervalIdsRef.current.forEach((intervalId) => clearInterval(intervalId))
+    streamIntervalIdsRef.current.clear()
   }
 
   const toggleAnalysisDetails = (messageIndex) => {
@@ -493,6 +511,7 @@ function App() {
 
   useEffect(() => {
     if (isTestMode) {
+      clearStreamingIntervals();
       setWs(null);
       setIsLoading(false);
       console.log('🧪 Running in TEST MODE. WebSocket is disabled.');
@@ -546,7 +565,19 @@ function App() {
         } else if (data.error) {
           setMessages(prev => [...prev, { role: 'assistant', content: `**Backend Error:** ${data.error}`, latency: responseLatency, timestamp: getCurrentTime() }]);
         } else if (data.message) {
-          simulateStreaming(normalizeAssistantMessageContent(data.message), null, responseLatency);
+          const messageText = String(data.message || '')
+          const isDeploymentStatusMessage = data.jobQueued || /^Deployment\s/i.test(messageText)
+
+          if (isDeploymentStatusMessage) {
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: normalizeAssistantMessageContent(messageText),
+              latency: responseLatency,
+              timestamp: getCurrentTime(),
+            }])
+          } else {
+            simulateStreaming(normalizeAssistantMessageContent(messageText), null, responseLatency);
+          }
         } else {
           console.log('Received message from backend:', data);
         }
@@ -572,6 +603,7 @@ function App() {
     setWs(socket);
     return () => {
       clearResponseTimeout();
+      clearStreamingIntervals();
       socket.close();
     };
   }, [isTestMode]);
