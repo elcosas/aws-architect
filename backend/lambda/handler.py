@@ -1,5 +1,6 @@
 import json
 import os
+import boto3
 from bedrock_client import invoke_bedrock
 
 SYSTEM_PROMPT = open(
@@ -11,6 +12,28 @@ CFN_SYSTEM_PROMPT = open(
 ).read()
 
 # ---------------------------------------------------------
+# Initialize API Gateway Management API client for WebSocket responses
+# ---------------------------------------------------------
+def get_apigw_management_client(event):
+    domain_name = event["requestContext"]["domainName"]
+    stage = event["requestContext"]["stage"]
+    return boto3.client("apigatewaymanagementapi", endpoint_url=f"https://{domain_name}/{stage}")
+
+# ---------------------------------------------------------
+# Send message back to client through WebSocket
+# ---------------------------------------------------------
+def send_message_to_client(apigw_client, connection_id, message):
+    try:
+        apigw_client.post_to_connection(
+            ConnectionId=connection_id,
+            Data=json.dumps(message) if isinstance(message, dict) else message
+        )
+    except apigw_client.exceptions.GoneException:
+        print(f"Connection {connection_id} is gone (disconnected)")
+    except Exception as e:
+        print(f"Error sending message to {connection_id}: {str(e)}")
+
+# ---------------------------------------------------------
 # Step 1: AWS Lambda entry point
 # Handles API Gateway WebSocket events and routes incoming
 # messages to process user architecture requests.
@@ -19,6 +42,7 @@ def handler(event, context):
     # Extract route key and connection ID
     route = event["requestContext"]["routeKey"]
     connection_id = event["requestContext"]["connectionId"]
+    apigw_client = get_apigw_management_client(event)
 
     # Handle the initial connection handshake
     if route == "$connect":
@@ -40,11 +64,9 @@ def handler(event, context):
         prompt = build_prompt(user_input, feedback, selected_services)
         result = invoke_bedrock(SYSTEM_PROMPT, prompt)
 
-        # Return the generated Mermaid JS diagram
-        return {
-            "statusCode": 200,
-            "body": json.dumps(result)
-        }
+        # Send the generated Mermaid JS diagram back through WebSocket
+        send_message_to_client(apigw_client, connection_id, result)
+        return {"statusCode": 200}
 
     # Generate CloudFormation based on approved diagram
     if route == "generateCloudFormation":
@@ -56,10 +78,9 @@ def handler(event, context):
         prompt = build_cfn_prompt(user_input, approved_diagram, selected_services)
         result = invoke_bedrock(CFN_SYSTEM_PROMPT, prompt, tool_type="cloudformation")
 
-        return {
-            "statusCode": 200,
-            "body": json.dumps(result)
-        }
+        # Send the CloudFormation result back through WebSocket
+        send_message_to_client(apigw_client, connection_id, result)
+        return {"statusCode": 200}
 
     return {"statusCode": 400, "body": "Unknown route"}
 

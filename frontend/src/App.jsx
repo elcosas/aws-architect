@@ -56,10 +56,15 @@ function App() {
         if (data.mermaid_code) {
           const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\``;
           setMessages(prev => [...prev, { role: 'assistant', content: botResponse, timestamp: getCurrentTime() }]);
+        } else if (data.cloudformation_yaml) {
+          const botResponse = `Here is your CloudFormation template:\n\n\`\`\`yaml\n${data.cloudformation_yaml}\n\`\`\``;
+          setMessages(prev => [...prev, { role: 'assistant', content: botResponse, timestamp: getCurrentTime() }]);
         } else if (data.error) {
           setMessages(prev => [...prev, { role: 'assistant', content: `**Backend Error:** ${data.error}`, timestamp: getCurrentTime() }]);
         } else if (data.message) {
           setMessages(prev => [...prev, { role: 'assistant', content: data.message, timestamp: getCurrentTime() }]);
+        } else {
+          console.log('Received message from backend:', data);
         }
       } catch (err) { 
         console.error("Message parse error:", err); 
