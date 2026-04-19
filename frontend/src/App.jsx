@@ -22,6 +22,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [ws, setWs] = useState(null);
+  const [isTestMode, setIsTestMode] = useState(IS_TEST_MODE);
   
   // Modal States
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
@@ -39,10 +40,36 @@ function App() {
     "CloudFront", "CloudFormation", "DynamoDB", "AWS IAM"
   ];
 
-  // --- WEBSOCKET SETUP (ONLY RUNS IF TEST MODE IS FALSE) ---
+  const currentModeLabel = isTestMode ? 'Test Mode' : 'Live Mode';
+
+  const handleModeChange = (nextModeIsTest) => {
+    if (nextModeIsTest === isTestMode) return;
+
+    setIsLoading(false);
+    setIsTestMode(nextModeIsTest);
+    setCredentialError('');
+
+    if (isDeployModalOpen) {
+      setIsDeployModalOpen(false);
+    }
+
+    if (!nextModeIsTest && !WS_URL) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: '**Configuration Error:** Live mode is enabled, but no `VITE_WS_URL` is configured.',
+        timestamp: getCurrentTime(),
+      }]);
+    }
+  };
+
+  // --- WEBSOCKET SETUP (ONLY RUNS IF LIVE MODE IS ACTIVE) ---
   useEffect(() => {
-    if (IS_TEST_MODE) {
+    if (isTestMode) {
       console.log('🧪 Running in TEST MODE. WebSocket is disabled.');
+      if (ws) {
+        ws.close();
+        setWs(null);
+      }
       return; 
     }
 
@@ -78,8 +105,10 @@ function App() {
     };
 
     setWs(socket);
-    return () => socket.close();
-  }, []);
+    return () => {
+      socket.close();
+    };
+  }, [isTestMode]);
 
   // --- UI LOGIC ---
   useEffect(() => {
@@ -111,7 +140,7 @@ function App() {
     setInputValue('');
     setIsLoading(true);
 
-    if (IS_TEST_MODE) {
+    if (isTestMode) {
       // 🧪 Fake the backend response
       setTimeout(() => {
         setIsLoading(false);
@@ -165,7 +194,7 @@ function App() {
     }]);
     setIsLoading(true);
 
-    if (IS_TEST_MODE) {
+    if (isTestMode) {
       // 🧪 Fake the deployment response
       setTimeout(() => {
         setIsLoading(false);
@@ -225,7 +254,31 @@ function App() {
 
   return (
     <div className="chat-container">
-      {messages.length > 0 && <header className="chat-header"><h1>AWS Architect {IS_TEST_MODE && <span style={{fontSize: '12px', color: '#ff9900'}}>[TEST MODE]</span>}</h1></header>}
+      <header className="chat-header">
+        <div className="chat-header__title-row">
+          <h1>AWS Architect</h1>
+          <span className={`mode-pill ${isTestMode ? 'mode-pill--test' : 'mode-pill--live'}`}>
+            {currentModeLabel}
+          </span>
+        </div>
+
+        <div className="mode-toggle" role="group" aria-label="Toggle app mode">
+          <button
+            type="button"
+            className={`mode-toggle__button ${isTestMode ? 'mode-toggle__button--active' : ''}`}
+            onClick={() => handleModeChange(true)}
+          >
+            Test Mode
+          </button>
+          <button
+            type="button"
+            className={`mode-toggle__button ${!isTestMode ? 'mode-toggle__button--active' : ''}`}
+            onClick={() => handleModeChange(false)}
+          >
+            Live Mode
+          </button>
+        </div>
+      </header>
       
       {messages.length > 0 ? (
         <main className="messages-area" ref={chatContainerRef} onScroll={handleScroll}>
@@ -262,7 +315,13 @@ function App() {
           <div ref={messagesEndRef} />
         </main>
       ) : (
-        <div className="home-screen"><h2>Hi there,</h2><h1>Where should we start? {IS_TEST_MODE && <span style={{fontSize: '16px', color: '#ff9900'}}>[TEST MODE ACTIVE]</span>}</h1></div>
+        <div className="home-screen">
+          <h2>Hi there,</h2>
+          <h1>Where should we start?</h1>
+          <p className="home-screen__mode-note">
+            You are currently in <strong>{currentModeLabel}</strong>.
+          </p>
+        </div>
       )}
       
       <footer className="input-area">
