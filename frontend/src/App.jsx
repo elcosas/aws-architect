@@ -188,8 +188,10 @@ function App() {
   // Modal States
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [deployError, setDeployError] = useState('');
+  const [deployStatus, setDeployStatus] = useState('');
   const [isFetchingExternalId, setIsFetchingExternalId] = useState(false);
   const [latestExternalId, setLatestExternalId] = useState('');
+  const [latestQuickCreateLink, setLatestQuickCreateLink] = useState('');
   const [roleArn, setRoleArn] = useState('');
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [selectedServices, setSelectedServices] = useState([]);
@@ -494,7 +496,9 @@ function App() {
     
     if (isConfirmed) {
       setDeployError('');
+      setDeployStatus('');
       setLatestExternalId('');
+      setLatestQuickCreateLink('');
       setRoleArn('');
       setIsDeployModalOpen(true);
     }
@@ -502,6 +506,7 @@ function App() {
 
   const handleConnectAwsAccount = async () => {
     setDeployError('');
+    setDeployStatus('');
 
     if (!isTestMode && !sessionID) {
       setDeployError('Please send at least one chat message first so a session can be created.');
@@ -521,15 +526,20 @@ function App() {
 
       setLatestExternalId(externalId);
       const quickLink = buildQuickCreateLink(externalId);
-      window.open(quickLink, '_blank');
+      setLatestQuickCreateLink(quickLink);
 
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: 'Opened your CloudFormation setup link in a new tab. Complete stack creation in AWS, then return here for the next deployment step.',
-        timestamp: getCurrentTime(),
-      }]);
+      const popupWidth = 1200;
+      const popupHeight = 850;
+      const left = Math.max(0, Math.floor((window.screen.width - popupWidth) / 2));
+      const top = Math.max(0, Math.floor((window.screen.height - popupHeight) / 2));
+      const features = `popup=yes,width=${popupWidth},height=${popupHeight},left=${left},top=${top},resizable=yes,scrollbars=yes`;
+      const popup = window.open(quickLink, 'cloudweaver-cfn-setup', features);
 
-      setIsDeployModalOpen(false);
+      if (!popup) {
+        setDeployError('Popup was blocked. Use the fallback link below to open CloudFormation setup.');
+      } else {
+        setDeployStatus('CloudFormation setup opened in a popup window. Complete the stack there, then submit your Role ARN below.');
+      }
     } catch (error) {
       setDeployError(error.message || 'Unable to prepare your AWS setup link.');
     } finally {
@@ -594,6 +604,7 @@ function App() {
   const handleCloseModal = () => {
     setIsDeployModalOpen(false);
     setDeployError('');
+    setDeployStatus('');
   };
 
   const handleServiceToggle = (service) => {
@@ -610,10 +621,12 @@ function App() {
     setIsLoading(false);
     setIsUserScrolledUp(false);
     setDeployError('');
+    setDeployStatus('');
     setIsModeMenuOpen(false);
     setIsDeployModalOpen(false);
     setActiveServiceInfo(null);
     setLatestExternalId('');
+    setLatestQuickCreateLink('');
     setRoleArn('');
   };
 
@@ -890,6 +903,26 @@ function App() {
             {deployError && (
               <div className="credential-error">
                 {deployError}
+              </div>
+            )}
+
+            {deployStatus && (
+              <div className="credential-error" style={{ borderColor: '#3fb950', color: '#3fb950', backgroundColor: 'rgba(63, 185, 80, 0.12)' }}>
+                {deployStatus}
+              </div>
+            )}
+
+            {latestQuickCreateLink && (
+              <div className="form-group">
+                <label>CloudFormation Setup Link (Fallback)</label>
+                <a
+                  href={latestQuickCreateLink}
+                  target="cloudweaver-cfn-setup"
+                  rel="noreferrer"
+                  style={{ color: '#ffb84d', wordBreak: 'break-all', fontSize: '13px' }}
+                >
+                  {latestQuickCreateLink}
+                </a>
               </div>
             )}
 
