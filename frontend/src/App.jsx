@@ -794,10 +794,6 @@ function App() {
           <button type="submit" className="send-button" disabled={isLoading || !inputValue.trim()}>Send</button>
         </form>
         <div className="services-panel" aria-label="AWS services in current diagram">
-          <div className="services-panel__header">
-            <p className="services-panel__title">AWS Services in Current Diagram</p>
-            <span className="services-panel__count">{activeServices.size} used • {selectedServices.length} selected</span>
-          </div>
           <div className="services-grid">
             {awsServices.map(service => {
               const isUsed = activeServices.has(service)
