@@ -527,6 +527,24 @@ function App() {
 
   const markdownComponents = useMemo(
     () => ({
+      p(props) {
+        const { children, ...rest } = props
+        const text = Array.isArray(children)
+          ? children.filter((child) => typeof child === 'string').join('').trim()
+          : typeof children === 'string'
+            ? children.trim()
+            : ''
+
+        if (text === 'Here is your architecture:') {
+          return (
+            <p {...rest} className="architecture-intro">
+              {children}
+            </p>
+          )
+        }
+
+        return <p {...rest}>{children}</p>
+      },
       code(props) {
         const { children, className, ...rest } = props
         const match = /language-(\w+)/.exec(className || '')
