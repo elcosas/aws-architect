@@ -12,32 +12,37 @@ const getCurrentTime = () => {
 };
 
 const SERVICE_MATCHERS = {
-  'Amazon Bedrock': /\bbedrock\b/i,
-  'AWS Lambda': /\blambda\b/i,
-  'Amazon S3': /\bs3\b|simple\s+storage/i,
-  'API Gateway': /api\s*gateway|apigateway/i,
-  'CloudFront': /\bcloudfront\b/i,
-  'CloudFormation': /\bcloudformation\b/i,
-  'DynamoDB': /\bdynamodb\b/i,
-  'AWS IAM': /\biam\b|identity\s+and\s+access\s+management/i,
+  'Amazon Bedrock': /\bbedrock\b|br\b/i,
+  'AWS Lambda': /\blambda\b|\bfn\b/i,
+  'Amazon S3': /\bs3\b|simple\s+storage|bucket/i,
+  'API Gateway': /api\s*gateway|apigateway|\bapigw\b|\bgateway\b/i,
+  'CloudFront': /\bcloudfront\b|\bcf\b/i,
+  'CloudFormation': /\bcloudformation\b|\bcfn\b/i,
+  'DynamoDB': /\bdynamodb\b|\bddb\b/i,
+  'AWS IAM': /\biam\b|identity\s+and\s+access\s+management|identity\s+center|sts/i,
 };
 
-const extractLatestMermaidCode = (messages) => {
+const extractLatestAssistantContent = (messages) => {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
     if (message?.role !== 'assistant' || typeof message?.content !== 'string') continue;
-    const mermaidMatch = message.content.match(/```mermaid\s*([\s\S]*?)```/i);
-    if (mermaidMatch?.[1]) return mermaidMatch[1];
+    return message.content;
   }
   return '';
 };
 
-const getUsedServicesFromMermaid = (mermaidCode) => {
+const getUsedServicesFromContent = (content) => {
   const activeServices = new Set();
-  const normalized = mermaidCode.toLowerCase();
+  if (!content) return activeServices;
+
+  const mermaidMatch = content.match(/```mermaid\s*([\s\S]*?)```/i);
+  const sourceText = (mermaidMatch?.[1] || content)
+    .replace(/[`*_#>-]/g, ' ')
+    .replace(/<br\/?\s*>/gi, ' ')
+    .toLowerCase();
 
   Object.entries(SERVICE_MATCHERS).forEach(([serviceName, matcher]) => {
-    if (matcher.test(normalized)) {
+    if (matcher.test(sourceText)) {
       activeServices.add(serviceName);
     }
   });
@@ -95,9 +100,8 @@ function App() {
   ];
 
   const activeServices = useMemo(() => {
-    const latestMermaid = extractLatestMermaidCode(messages);
-    if (!latestMermaid) return new Set();
-    return getUsedServicesFromMermaid(latestMermaid);
+    const latestAssistantContent = extractLatestAssistantContent(messages);
+    return getUsedServicesFromContent(latestAssistantContent);
   }, [messages]);
 
   useEffect(() => {
