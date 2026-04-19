@@ -820,6 +820,78 @@
   color: #131314;
 }
 
+.reasoning-panel {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(170, 59, 255, 0.28);
+  background: linear-gradient(165deg, rgba(25, 20, 32, 0.75) 0%, rgba(19, 20, 22, 0.72) 100%);
+}
+
+.reasoning-panel h4 {
+  margin: 0 0 8px;
+  color: #ffb84d;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
+
+.reasoning-panel p {
+  margin: 0 0 12px;
+  color: #d7dbe0;
+  line-height: 1.62;
+  font-size: 14px;
+}
+
+.reasoning-pros-cons-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+
+.reasoning-column {
+  border-radius: 10px;
+  padding: 10px 10px 6px;
+  border: 1px solid rgba(68, 71, 70, 0.5);
+  background: rgba(12, 13, 14, 0.45);
+}
+
+.reasoning-column h5 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.reasoning-column ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.reasoning-column li {
+  margin-bottom: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.reasoning-column--pros h5 {
+  color: #6ee7a8;
+}
+
+.reasoning-column--pros li::marker {
+  color: #5de38f;
+}
+
+.reasoning-column--cons h5 {
+  color: #ff8a8a;
+}
+
+.reasoning-column--cons li::marker {
+  color: #ff6f6f;
+}
+
 /* --- 8. MERMAID DIAGRAM STYLING --- */
 .mermaid-wrapper {
   display: flex;
@@ -833,6 +905,12 @@
   contain: content;
   cursor: pointer;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+@media (max-width: 760px) {
+  .reasoning-pros-cons-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .mermaid-wrapper:hover {

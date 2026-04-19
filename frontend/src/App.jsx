@@ -240,11 +240,13 @@ function App() {
         }
 
         if (data.mermaid_code) {
-          const feedbackSection = data.feedback
-            ? `\n\n---\n\n${data.feedback}`
-            : '';
-          const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\`${feedbackSection}`;
-          setMessages(prev => [...prev, { role: 'assistant', content: botResponse, timestamp: getCurrentTime() }]);
+          const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\``;
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: botResponse,
+            analysis: data.analysis || null,
+            timestamp: getCurrentTime(),
+          }]);
         } else if (data.cloudformation_yaml) {
           const botResponse = `Here is your CloudFormation template:\n\n\`\`\`yaml\n${data.cloudformation_yaml}\n\`\`\``;
           setMessages(prev => [...prev, { role: 'assistant', content: botResponse, timestamp: getCurrentTime() }]);
@@ -589,6 +591,36 @@ function App() {
                 <ReactMarkdown components={markdownComponents}>
                   {msg.content}
                 </ReactMarkdown>
+
+                {msg.analysis && (
+                  <section className="reasoning-panel" aria-label="Architecture reasoning">
+                    <h4>Why this architecture</h4>
+                    <p>{msg.analysis.why_this_architecture}</p>
+
+                    <div className="reasoning-pros-cons-grid">
+                      <div className="reasoning-column reasoning-column--pros">
+                        <h5>Pros</h5>
+                        <ul>
+                          {(msg.analysis.pros || []).map((item, idx) => (
+                            <li key={`pro-${idx}-${item}`}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="reasoning-column reasoning-column--cons">
+                        <h5>Cons</h5>
+                        <ul>
+                          {(msg.analysis.cons || []).map((item, idx) => (
+                            <li key={`con-${idx}-${item}`}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <h4>Improvements</h4>
+                    <p>{msg.analysis.improvements}</p>
+                  </section>
+                )}
 
                 {index === messages.length - 1 && msg.role === 'assistant' && msg.content.includes('```mermaid') && (
                   <div style={{ marginTop: '12px', textAlign: 'right' }}>
