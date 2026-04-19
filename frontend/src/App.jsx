@@ -997,8 +997,16 @@ function App() {
                         className="section-copy-button"
                         onClick={() => handleCopySection(msg.analysis.why_this_architecture, `${index}-why`)}
                         aria-label="Copy Why this architecture"
+                        title={copiedSectionKey === `${index}-why` ? 'Copied' : 'Copy'}
                       >
-                        {copiedSectionKey === `${index}-why` ? 'Copied' : 'Copy'}
+                        {copiedSectionKey === `${index}-why` ? (
+                          <span className="section-copy-button__icon section-copy-button__icon--copied" aria-hidden="true">✓</span>
+                        ) : (
+                          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className="section-copy-button__icon">
+                            <rect x="9" y="9" width="11" height="11" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="1.9" />
+                            <rect x="4" y="4" width="11" height="11" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="1.9" />
+                          </svg>
+                        )}
                       </button>
                     </div>
                     <p>{msg.analysis.why_this_architecture}</p>
@@ -1017,8 +1025,16 @@ function App() {
                               )
                             }
                             aria-label="Copy Pros and Cons"
+                            title={copiedSectionKey === `${index}-pros-cons` ? 'Copied' : 'Copy'}
                           >
-                            {copiedSectionKey === `${index}-pros-cons` ? 'Copied' : 'Copy'}
+                            {copiedSectionKey === `${index}-pros-cons` ? (
+                              <span className="section-copy-button__icon section-copy-button__icon--copied" aria-hidden="true">✓</span>
+                            ) : (
+                              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className="section-copy-button__icon">
+                                <rect x="9" y="9" width="11" height="11" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="1.9" />
+                                <rect x="4" y="4" width="11" height="11" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="1.9" />
+                              </svg>
+                            )}
                           </button>
                         </div>
 
@@ -1049,8 +1065,16 @@ function App() {
                             className="section-copy-button"
                             onClick={() => handleCopySection(msg.analysis.improvements, `${index}-improvements`)}
                             aria-label="Copy Improvements"
+                            title={copiedSectionKey === `${index}-improvements` ? 'Copied' : 'Copy'}
                           >
-                            {copiedSectionKey === `${index}-improvements` ? 'Copied' : 'Copy'}
+                            {copiedSectionKey === `${index}-improvements` ? (
+                              <span className="section-copy-button__icon section-copy-button__icon--copied" aria-hidden="true">✓</span>
+                            ) : (
+                              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className="section-copy-button__icon">
+                                <rect x="9" y="9" width="11" height="11" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="1.9" />
+                                <rect x="4" y="4" width="11" height="11" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="1.9" />
+                              </svg>
+                            )}
                           </button>
                         </div>
                         <p>{msg.analysis.improvements}</p>

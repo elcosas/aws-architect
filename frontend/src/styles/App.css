@@ -1401,13 +1401,16 @@
 }
 
 .section-copy-button {
+  width: 30px;
+  height: 30px;
   border: 1px solid rgba(170, 59, 255, 0.42);
   background: rgba(30, 24, 38, 0.88);
   color: #f5d0fe;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 4px 10px;
+  border-radius: 8px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
 }
@@ -1416,6 +1419,21 @@
   border-color: rgba(255, 153, 0, 0.66);
   transform: translateY(-1px);
   background: rgba(43, 33, 56, 0.92);
+}
+
+.section-copy-button__icon {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+}
+
+.section-copy-button__icon--copied {
+  width: auto;
+  height: auto;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1;
+  color: #6ee7a8;
 }
 
 .reasoning-panel p {
