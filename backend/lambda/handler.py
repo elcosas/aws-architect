@@ -87,6 +87,7 @@ DEFAULT_STACK_NAME_PREFIX = "CloudWeaverStack"
 DEFAULT_SETUP_STACK_NAME = "ChatbotConnect"
 MAX_CFN_GENERATION_ATTEMPTS = 3
 DEPLOYMENT_QUEUE_URL_ENV = "DEPLOYMENT_QUEUE_URL"
+MAX_CLEANUP_RETRIES = 3
 
 
 def get_apigw_management_client(event):
@@ -587,6 +588,24 @@ def run_generate_cloudformation_deployment(session_id: str, role_arn: str, deplo
         assume_role_response,
     )
 
+    # Fast path for duplicate/replayed jobs: avoid regenerating/redeploying when stack already exists.
+    existing_stack = get_existing_stack(cfn_client, deployment_inputs["stack_name"])
+    existing_status = (existing_stack or {}).get("StackStatus")
+    if existing_status in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"}:
+        cleanup_result = cleanup_setup_stack(
+            cfn_client,
+            deployment_inputs["setup_stack_name"],
+            deployment_inputs["stack_name"],
+        )
+        return {
+            "suppressClientMessage": True,
+            "stackName": deployment_inputs["stack_name"],
+            "stackId": (existing_stack or {}).get("StackId"),
+            "region": deployment_inputs["region"],
+            "deploymentOperation": "existing",
+            "cleanup": cleanup_result,
+        }
+
     latest_assistant_context = get_latest_assistant_architecture_context(session_id)
     if not latest_assistant_context:
         raise ValueError(
@@ -669,6 +688,29 @@ def enqueue_deployment_job(queue_url: str, request_context: dict, payload: dict)
     )
 
 
+def enqueue_cleanup_retry_job(queue_url: str, body: dict, retry_count: int):
+    sqs_client = boto3.client("sqs")
+    delay_seconds = min(900, max(60, retry_count * 180))
+    retry_payload = {
+        "jobType": "cleanupRetry",
+        "cleanupRetryCount": retry_count,
+        "sessionID": body.get("sessionID"),
+        "arn": body.get("arn") or body.get("roleArn"),
+        "roleArn": body.get("roleArn") or body.get("arn"),
+        "region": body.get("region"),
+        "stackName": body.get("stackName"),
+        "setupStackName": body.get("setupStackName"),
+        "connectionId": body.get("connectionId"),
+        "domainName": body.get("domainName"),
+        "stage": body.get("stage"),
+    }
+    sqs_client.send_message(
+        QueueUrl=queue_url,
+        DelaySeconds=delay_seconds,
+        MessageBody=json.dumps(retry_payload),
+    )
+
+
 def process_deployment_queue_records(records: list[dict]):
     for record in records:
         try:
@@ -679,6 +721,8 @@ def process_deployment_queue_records(records: list[dict]):
 
         session_id = normalize_session_id(body.get("sessionID"))
         role_arn = normalize_role_arn(body.get("arn") or body.get("roleArn"))
+        job_type = str(body.get("jobType") or "deploy")
+        cleanup_retry_count = int(body.get("cleanupRetryCount") or 0)
 
         apigw_client = get_apigw_management_client_for_endpoint(
             body.get("domainName"),
@@ -732,7 +776,7 @@ def process_deployment_queue_records(records: list[dict]):
             except Exception as duplicate_check_error:
                 print(f"Duplicate-delivery check failed; processing retry: {duplicate_check_error}")
 
-        if receive_count == 1:
+        if job_type == "deploy" and receive_count == 1:
             send_message_to_client(
                 apigw_client,
                 connection_id,
@@ -752,11 +796,23 @@ def process_deployment_queue_records(records: list[dict]):
                 role_arn,
                 deployment_inputs,
             )
-            send_message_to_client(
-                apigw_client,
-                connection_id,
-                build_response_payload(result_payload, session_id),
-            )
+
+            cleanup_status = (result_payload.get("cleanup") or {}).get("status")
+            queue_url = os.getenv(DEPLOYMENT_QUEUE_URL_ENV, "").strip()
+            if queue_url and cleanup_status in {"failed", "in_progress", "delete_requested"}:
+                next_retry = cleanup_retry_count + 1
+                if next_retry <= MAX_CLEANUP_RETRIES:
+                    enqueue_cleanup_retry_job(queue_url, body, next_retry)
+
+            if result_payload.get("suppressClientMessage"):
+                continue
+
+            if job_type == "deploy":
+                send_message_to_client(
+                    apigw_client,
+                    connection_id,
+                    build_response_payload(result_payload, session_id),
+                )
         except Exception as exc:
             if is_missing_dynamodb_resource_error(exc):
                 error_message = (
@@ -766,11 +822,12 @@ def process_deployment_queue_records(records: list[dict]):
             else:
                 error_message = user_facing_deployment_error(exc)
 
-            send_message_to_client(
-                apigw_client,
-                connection_id,
-                build_response_payload({"error": error_message}, session_id),
-            )
+            if job_type == "deploy":
+                send_message_to_client(
+                    apigw_client,
+                    connection_id,
+                    build_response_payload({"error": error_message}, session_id),
+                )
 
 
 def is_missing_dynamodb_resource_error(error: Exception) -> bool:
