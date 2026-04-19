@@ -10,7 +10,9 @@ from boto3.dynamodb.conditions import Key
 DEFAULT_SESSIONS_TABLE = "aws-architect-sessions"
 DEFAULT_MESSAGES_TABLE = "aws-architect-messages"
 DEFAULT_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
-DEFAULT_CHAT_HISTORY_LIMIT = 20
+DEFAULT_CHAT_HISTORY_LIMIT = 60
+DEFAULT_CHAT_HISTORY_HARD_CAP = 120
+DEFAULT_HISTORY_MESSAGE_MAX_CHARS = 1800
 
 
 dynamodb = boto3.resource("dynamodb")
@@ -36,12 +38,21 @@ sessions_table = dynamodb.Table(_resolve_sessions_table_name())
 messages_table = dynamodb.Table(_resolve_messages_table_name())
 session_ttl_seconds = int(os.getenv("SESSION_TTL_SECONDS", str(DEFAULT_SESSION_TTL_SECONDS)))
 chat_history_limit = int(os.getenv("CHAT_HISTORY_LIMIT", str(DEFAULT_CHAT_HISTORY_LIMIT)))
+chat_history_hard_cap = int(os.getenv("CHAT_HISTORY_HARD_CAP", str(DEFAULT_CHAT_HISTORY_HARD_CAP)))
+history_message_max_chars = int(
+    os.getenv("HISTORY_MESSAGE_MAX_CHARS", str(DEFAULT_HISTORY_MESSAGE_MAX_CHARS))
+)
 session_sort_value = os.getenv("SESSION_SORT_VALUE", "SESSION")
 
 _key_schema_cache: Dict[str, Tuple[str, Optional[str]]] = {}
 
 
 MERMAID_BLOCK_PATTERN = re.compile(r"```mermaid\s*(.*?)```", re.IGNORECASE | re.DOTALL)
+
+
+def _is_resource_not_found_error(error: Exception) -> bool:
+    message = str(error)
+    return "ResourceNotFoundException" in message and "Requested resource not found" in message
 
 
 def _get_table_keys(table) -> Tuple[str, Optional[str]]:
@@ -94,7 +105,13 @@ def build_message_ts() -> str:
 
 def ensure_session(session_id: str, state: str = "ARCH_DRAFT") -> None:
     now = now_epoch_seconds()
-    hash_key, range_key = _get_table_keys(sessions_table)
+    try:
+        hash_key, range_key = _get_table_keys(sessions_table)
+    except Exception as error:
+        # Some environments intentionally only provision the messages table.
+        if _is_resource_not_found_error(error):
+            return
+        raise
 
     item = {
         hash_key: session_id,
@@ -118,14 +135,19 @@ def ensure_session(session_id: str, state: str = "ARCH_DRAFT") -> None:
 
 
 def touch_session(session_id: str) -> None:
-    sessions_table.update_item(
-        Key=_session_primary_key(session_id),
-        UpdateExpression="SET updatedAt = :updated_at, expiresAt = :expires_at",
-        ExpressionAttributeValues={
-            ":updated_at": now_epoch_seconds(),
-            ":expires_at": expires_at_epoch_seconds(),
-        },
-    )
+    try:
+        sessions_table.update_item(
+            Key=_session_primary_key(session_id),
+            UpdateExpression="SET updatedAt = :updated_at, expiresAt = :expires_at",
+            ExpressionAttributeValues={
+                ":updated_at": now_epoch_seconds(),
+                ":expires_at": expires_at_epoch_seconds(),
+            },
+        )
+    except Exception as error:
+        if _is_resource_not_found_error(error):
+            return
+        raise
 
 
 def save_message(
@@ -160,26 +182,53 @@ def save_message(
     return item["messageTs"]
 
 
+def _compact_history_content(content: str) -> str:
+    normalized = (content or "").strip()
+    if not normalized:
+        return ""
+
+    # Keep memory context concise so long-running chats still fit model context.
+    if len(normalized) <= history_message_max_chars:
+        return normalized
+
+    truncated = normalized[: history_message_max_chars].rstrip()
+    return f"{truncated}\n\n[truncated for context window]"
+
+
 def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> List[Dict]:
-    message_limit = limit or chat_history_limit
+    requested_limit = limit or chat_history_limit
+    message_limit = max(1, min(requested_limit, chat_history_hard_cap))
     messages_hash_key, messages_range_key = _get_table_keys(messages_table)
 
-    query_args = {
-        "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
-        "Limit": message_limit,
-    }
-    if messages_range_key:
-        query_args["ScanIndexForward"] = False
+    items: List[Dict] = []
+    last_evaluated_key = None
 
-    response = messages_table.query(**query_args)
+    while len(items) < message_limit:
+        remaining = message_limit - len(items)
+        query_args = {
+            "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
+            "Limit": remaining,
+        }
+        if messages_range_key:
+            query_args["ScanIndexForward"] = False
+        if last_evaluated_key:
+            query_args["ExclusiveStartKey"] = last_evaluated_key
 
-    items = response.get("Items", [])
+        response = messages_table.query(**query_args)
+        items.extend(response.get("Items", []))
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if not last_evaluated_key:
+            break
+
     if messages_range_key:
-        items = list(reversed(items))
+        items = list(reversed(items[-message_limit:]))
+    else:
+        items = items[-message_limit:]
+
     chat_messages = []
     for item in items:
         role = item.get("role")
-        content = item.get("content")
+        content = _compact_history_content(item.get("content"))
 
         if role not in ("user", "assistant") or not content:
             continue
