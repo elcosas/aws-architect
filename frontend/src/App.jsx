@@ -231,6 +231,48 @@ function App() {
   const [isResizingChat, setIsResizingChat] = useState(false);
   const [isMobileServicesOpen, setIsMobileServicesOpen] = useState(false);
 
+  const simulateStreaming = (fullText, analysis) => {
+    setIsLoading(false);
+    const timestamp = getCurrentTime();
+    setMessages(prev => [...prev, {
+      role: "assistant",
+      content: "",
+      analysis: null,
+      timestamp,
+      isStreaming: true
+    }]);
+
+    const chunkSize = 15;
+    const delay = 10;
+    let currentIndex = 0;
+
+    const intervalId = setInterval(() => {
+      currentIndex += chunkSize;
+      const currentText = fullText.slice(0, currentIndex);
+      
+      setMessages(prev => {
+        const newMessages = [...prev];
+        const lastIndex = newMessages.length - 1;
+        
+        if (currentIndex >= fullText.length) {
+          clearInterval(intervalId);
+          newMessages[lastIndex] = {
+            ...newMessages[lastIndex],
+            content: fullText,
+            analysis: analysis,
+            isStreaming: false
+          };
+        } else {
+          newMessages[lastIndex] = {
+            ...newMessages[lastIndex],
+            content: currentText
+          };
+        }
+        return newMessages;
+      });
+    }, delay);
+  };
+
   const appContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
@@ -404,23 +446,14 @@ function App() {
 
         if (data.mermaid_code) {
           const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\``;
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: botResponse,
-            analysis: data.analysis || null,
-            timestamp: getCurrentTime(),
-          }]);
+          simulateStreaming(botResponse, data.analysis || null);
         } else if (data.cloudformation_yaml) {
           const botResponse = `Here is your CloudFormation template:\n\n\`\`\`yaml\n${data.cloudformation_yaml}\n\`\`\``;
-          setMessages(prev => [...prev, { role: 'assistant', content: botResponse, timestamp: getCurrentTime() }]);
+          simulateStreaming(botResponse, null);
         } else if (data.error) {
           setMessages(prev => [...prev, { role: 'assistant', content: `**Backend Error:** ${data.error}`, timestamp: getCurrentTime() }]);
         } else if (data.message) {
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: normalizeAssistantMessageContent(data.message),
-            timestamp: getCurrentTime(),
-          }]);
+          simulateStreaming(normalizeAssistantMessageContent(data.message), null);
         } else {
           console.log('Received message from backend:', data);
         }
