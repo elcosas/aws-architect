@@ -215,15 +215,22 @@ function App() {
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [selectedServices, setSelectedServices] = useState([]);
   const [activeServiceInfo, setActiveServiceInfo] = useState(null);
+  const [chatBodyHeight, setChatBodyHeight] = useState(null);
+  const [isResizingChat, setIsResizingChat] = useState(false);
   const [awsCredentials, setAwsCredentials] = useState({
     accessKeyId: '',
     secretAccessKey: ''
   });
 
+  const appContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
+  const inputAreaRef = useRef(null);
   const modeMenuRef = useRef(null);
   const responseTimeoutRef = useRef(null);
+
+  const MIN_CHAT_BODY_HEIGHT = 220;
+  const MIN_INPUT_SECTION_HEIGHT = 240;
 
   const clearResponseTimeout = () => {
     if (responseTimeoutRef.current) {
@@ -364,6 +371,65 @@ function App() {
   const handleThemeToggle = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
   }
+
+  const resizeChatBody = (clientY) => {
+    const appEl = appContainerRef.current
+    const inputEl = inputAreaRef.current
+    if (!appEl || !inputEl || typeof clientY !== 'number') {
+      return
+    }
+
+    const appRect = appEl.getBoundingClientRect()
+    const headerEl = appEl.querySelector('.chat-header')
+    const headerHeight = headerEl ? headerEl.getBoundingClientRect().height : 0
+    const availableHeight = appRect.height - headerHeight
+
+    if (availableHeight <= 0) {
+      return
+    }
+
+    const pointerFromTop = clientY - appRect.top - headerHeight
+    const minHeight = MIN_CHAT_BODY_HEIGHT
+    const maxHeight = Math.max(minHeight, availableHeight - MIN_INPUT_SECTION_HEIGHT)
+    const nextHeight = Math.min(maxHeight, Math.max(minHeight, pointerFromTop))
+    setChatBodyHeight(nextHeight)
+  }
+
+  const startChatResize = (event) => {
+    event.preventDefault()
+    setIsResizingChat(true)
+  }
+
+  useEffect(() => {
+    if (!isResizingChat) {
+      return
+    }
+
+    const handleMouseMove = (event) => {
+      resizeChatBody(event.clientY)
+    }
+
+    const handleTouchMove = (event) => {
+      if (!event.touches?.length) return
+      resizeChatBody(event.touches[0].clientY)
+    }
+
+    const stopResize = () => {
+      setIsResizingChat(false)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', stopResize)
+    window.addEventListener('touchmove', handleTouchMove, { passive: true })
+    window.addEventListener('touchend', stopResize)
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', stopResize)
+      window.removeEventListener('touchmove', handleTouchMove)
+      window.removeEventListener('touchend', stopResize)
+    }
+  }, [isResizingChat])
 
   const handleScroll = () => {
     const container = chatContainerRef.current;
@@ -659,7 +725,10 @@ function App() {
       : null
 
   return (
-    <div className={`chat-container ${theme === 'light' ? 'theme-light' : 'theme-dark'}`}>
+    <div
+      ref={appContainerRef}
+      className={`chat-container ${theme === 'light' ? 'theme-light' : 'theme-dark'} ${isResizingChat ? 'chat-resizing' : ''}`}
+    >
       <header className="chat-header">
         <h1>Cloud Weaver</h1>
         <button
@@ -676,7 +745,12 @@ function App() {
         </button>
       </header>
 
-      <div className="chat-body-scroll" ref={chatContainerRef} onScroll={handleScroll}>
+      <div
+        className="chat-body-scroll"
+        ref={chatContainerRef}
+        onScroll={handleScroll}
+        style={chatBodyHeight ? { height: `${chatBodyHeight}px`, flex: '0 0 auto' } : undefined}
+      >
         {messages.length > 0 ? (
           <main className="messages-area">
           {messages.map((msg, index) => (
@@ -753,7 +827,18 @@ function App() {
         <div ref={messagesEndRef} />
       </div>
 
-      <footer className="input-area">
+      <div
+        className="chat-resize-handle"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Drag to resize chat area"
+        onMouseDown={startChatResize}
+        onTouchStart={startChatResize}
+      >
+        <span className="chat-resize-handle__icon" aria-hidden="true">↕</span>
+      </div>
+
+      <footer ref={inputAreaRef} className="input-area">
         {isUserScrolledUp && messages.length > 0 && (
           <button className="scroll-to-bottom" onClick={scrollToBottom}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg></button>
         )}
