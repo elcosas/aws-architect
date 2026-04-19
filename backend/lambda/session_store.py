@@ -14,8 +14,26 @@ DEFAULT_CHAT_HISTORY_LIMIT = 20
 
 
 dynamodb = boto3.resource("dynamodb")
-sessions_table = dynamodb.Table(os.getenv("SESSIONS_TABLE", DEFAULT_SESSIONS_TABLE))
-messages_table = dynamodb.Table(os.getenv("MESSAGES_TABLE", DEFAULT_MESSAGES_TABLE))
+
+
+def _resolve_sessions_table_name() -> str:
+    return (
+        os.getenv("SESSIONS_TABLE")
+        or os.getenv("SESSION_TABLE")
+        or DEFAULT_SESSIONS_TABLE
+    )
+
+
+def _resolve_messages_table_name() -> str:
+    return (
+        os.getenv("MESSAGES_TABLE")
+        or os.getenv("MESSAGE_TABLE")
+        or DEFAULT_MESSAGES_TABLE
+    )
+
+
+sessions_table = dynamodb.Table(_resolve_sessions_table_name())
+messages_table = dynamodb.Table(_resolve_messages_table_name())
 session_ttl_seconds = int(os.getenv("SESSION_TTL_SECONDS", str(DEFAULT_SESSION_TTL_SECONDS)))
 chat_history_limit = int(os.getenv("CHAT_HISTORY_LIMIT", str(DEFAULT_CHAT_HISTORY_LIMIT)))
 
