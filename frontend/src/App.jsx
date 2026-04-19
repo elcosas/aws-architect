@@ -1066,6 +1066,7 @@ function App() {
         inputValue={inputValue}
         setInputValue={setInputValue}
         isLoading={isLoading}
+        awsServices={awsServices}
         activeServices={activeServices}
         selectedServices={selectedServices}
         handleServiceToggle={handleServiceToggle}
