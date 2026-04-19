@@ -309,8 +309,6 @@ function App() {
     setCredentialError('');
   };
 
-  const handleServiceClick = (service) => setInputValue(`Help me configure ${service}`);
-
   const resetUiForModeChange = () => {
     setMessages([]);
     setInputValue('');
@@ -443,16 +441,25 @@ function App() {
           <input type="text" className="chat-input" placeholder="Ask Cloud Weaver" value={inputValue} onChange={(e) => setInputValue(e.target.value)} disabled={isLoading} />
           <button type="submit" className="send-button" disabled={isLoading || !inputValue.trim()}>Send</button>
         </form>
-        <div className="suggestion-chips">
-          {awsServices.map(service => (
-            <button
-              key={service}
-              className={`chip-button ${activeServices.has(service) ? 'chip-button--used' : 'chip-button--unused'}`}
-              onClick={() => handleServiceClick(service)}
-            >
-              {service}
-            </button>
-          ))}
+        <div className="services-panel" aria-label="AWS services in current diagram">
+          <div className="services-panel__header">
+            <p className="services-panel__title">AWS Services in Current Diagram</p>
+            <span className="services-panel__count">{activeServices.size} / {awsServices.length} used</span>
+          </div>
+          <div className="services-grid">
+            {awsServices.map(service => {
+              const isUsed = activeServices.has(service)
+              return (
+                <div
+                  key={service}
+                  className={`chip-button ${isUsed ? 'chip-button--used' : 'chip-button--unused'}`}
+                >
+                  <span className={`service-status-dot ${isUsed ? 'used' : 'unused'}`} aria-hidden="true" />
+                  <span className="service-name">{service}</span>
+                </div>
+              )
+            })}
+          </div>
         </div>
       </footer>
 
