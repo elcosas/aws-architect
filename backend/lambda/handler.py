@@ -302,6 +302,16 @@ def _is_stack_not_found_error(error: Exception) -> bool:
     return "does not exist" in message and "Stack with id" in message
 
 
+def get_existing_stack(cfn_client, stack_name: str):
+    try:
+        stacks = cfn_client.describe_stacks(StackName=stack_name).get("Stacks", [])
+        return stacks[0] if stacks else None
+    except Exception as exc:
+        if _is_stack_not_found_error(exc):
+            return None
+        raise
+
+
 def _stringify_validation_issues(issues: list[dict]) -> str:
     if not issues:
         return ""
@@ -401,25 +411,43 @@ def generate_validated_cloudformation_template(cfn_client, last_assistant_messag
 
 
 def deploy_cloudformation_stack(cfn_client, stack_name: str, template_body: str):
-    stack_exists = True
-    stack_id = None
+    existing_stack = get_existing_stack(cfn_client, stack_name)
+    if existing_stack:
+        existing_status = existing_stack.get("StackStatus")
 
-    try:
-        describe_response = cfn_client.describe_stacks(StackName=stack_name)
-        stacks = describe_response.get("Stacks", [])
-        if stacks:
-            stack_id = stacks[0].get("StackId")
-    except Exception as exc:
-        if _is_stack_not_found_error(exc):
-            stack_exists = False
-        else:
-            raise
+        if isinstance(existing_status, str) and existing_status.endswith("_IN_PROGRESS"):
+            raise RuntimeError(
+                f"Deployment is already in progress for stack {stack_name}. "
+                "Wait for completion and retry if needed."
+            )
 
-    if not stack_exists:
+        if existing_status in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"}:
+            return {
+                "stack_id": existing_stack.get("StackId"),
+                "operation": "existing",
+                "status": existing_status,
+            }
+
+        if existing_status in {"ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "CREATE_FAILED"}:
+            # Recover from failed stack states so retried deployments can proceed automatically.
+            cfn_client.delete_stack(StackName=stack_name)
+            cfn_client.get_waiter("stack_delete_complete").wait(
+                StackName=stack_name,
+                WaiterConfig={"Delay": 5, "MaxAttempts": 120},
+            )
+            existing_stack = None
+
+        if existing_stack:
+            raise RuntimeError(
+                f"Stack {stack_name} is in status {existing_status}. Resolve stack state before retrying deployment."
+            )
+
+    if not existing_stack:
         create_response = cfn_client.create_stack(
             StackName=stack_name,
             TemplateBody=template_body,
             Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
+            OnFailure="DELETE",
         )
         stack_id = create_response.get("StackId")
         cfn_client.get_waiter("stack_create_complete").wait(
@@ -427,24 +455,6 @@ def deploy_cloudformation_stack(cfn_client, stack_name: str, template_body: str)
             WaiterConfig={"Delay": 5, "MaxAttempts": 120},
         )
         operation = "create"
-    else:
-        try:
-            update_response = cfn_client.update_stack(
-                StackName=stack_name,
-                TemplateBody=template_body,
-                Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
-            )
-            stack_id = update_response.get("StackId") or stack_id
-            cfn_client.get_waiter("stack_update_complete").wait(
-                StackName=stack_name,
-                WaiterConfig={"Delay": 5, "MaxAttempts": 120},
-            )
-            operation = "update"
-        except ClientError as exc:
-            if "No updates are to be performed" in str(exc):
-                operation = "no-op"
-            else:
-                raise
 
     final_stack = cfn_client.describe_stacks(StackName=stack_name).get("Stacks", [{}])[0]
     return {
@@ -471,19 +481,21 @@ def cleanup_setup_stack(cfn_client, setup_stack_name: str, deployed_stack_name: 
         }
 
     try:
-        cfn_client.describe_stacks(StackName=setup_stack_name)
+        described = cfn_client.describe_stacks(StackName=setup_stack_name)
+        stack = (described.get("Stacks") or [{}])[0]
+        stack_status = stack.get("StackStatus", "")
+
+        if stack_status == "DELETE_IN_PROGRESS":
+            return {"status": "in_progress"}
     except Exception as exc:
         if _is_stack_not_found_error(exc):
             return {"status": "not_found"}
         return {"status": "failed", "reason": str(exc)}
 
     try:
+        # Start cleanup without blocking on waiter terminal states.
         cfn_client.delete_stack(StackName=setup_stack_name)
-        cfn_client.get_waiter("stack_delete_complete").wait(
-            StackName=setup_stack_name,
-            WaiterConfig={"Delay": 5, "MaxAttempts": 120},
-        )
-        return {"status": "deleted"}
+        return {"status": "delete_requested"}
     except Exception as exc:
         return {"status": "failed", "reason": str(exc)}
 
@@ -551,9 +563,9 @@ def run_generate_cloudformation_deployment(session_id: str, role_arn: str, deplo
             " Deployment succeeded, but setup stack cleanup did not complete. "
             "You can delete ChatbotConnect manually in CloudFormation."
         )
-    elif cleanup_status == "deleted":
-        cleanup_note = " Setup stack cleanup succeeded."
-    elif cleanup_status in ("skipped", "not_found"):
+    elif cleanup_status == "delete_requested":
+        cleanup_note = " Setup stack cleanup was requested and is now in progress."
+    elif cleanup_status in ("skipped", "not_found", "in_progress"):
         cleanup_note = (
             " Setup stack cleanup status: "
             f"{cleanup_status.replace('_', ' ')}"
@@ -636,18 +648,47 @@ def process_deployment_queue_records(records: list[dict]):
             send_message_to_client(apigw_client, connection_id, error_payload)
             continue
 
-        send_message_to_client(
-            apigw_client,
-            connection_id,
-            build_response_payload(
-                {
-                    "message": (
-                        "Deployment job started. Generating and validating CloudFormation template now..."
+        receive_count_raw = (record.get("attributes", {}) or {}).get("ApproximateReceiveCount", "1")
+        try:
+            receive_count = int(receive_count_raw)
+        except Exception:
+            receive_count = 1
+
+        if receive_count > 1:
+            # SQS redelivery can happen after a successful first run. Skip duplicate completion runs.
+            try:
+                external_id = get_session_external_id(session_id)
+                if external_id:
+                    assume_role_response = assume_cross_account_role(role_arn, external_id)
+                    cfn_client = assumed_role_client(
+                        "cloudformation",
+                        deployment_inputs["region"],
+                        assume_role_response,
                     )
-                },
-                session_id,
-            ),
-        )
+                    existing_stack = get_existing_stack(cfn_client, deployment_inputs["stack_name"])
+                    existing_status = (existing_stack or {}).get("StackStatus")
+                    if existing_status in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"}:
+                        print(
+                            "Skipping duplicate SQS delivery for "
+                            f"session={session_id}, stack={deployment_inputs['stack_name']}, status={existing_status}"
+                        )
+                        continue
+            except Exception as duplicate_check_error:
+                print(f"Duplicate-delivery check failed; processing retry: {duplicate_check_error}")
+
+        if receive_count == 1:
+            send_message_to_client(
+                apigw_client,
+                connection_id,
+                build_response_payload(
+                    {
+                        "message": (
+                            "Deployment job started. Generating and validating CloudFormation template now..."
+                        )
+                    },
+                    session_id,
+                ),
+            )
 
         try:
             result_payload = run_generate_cloudformation_deployment(
