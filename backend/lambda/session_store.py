@@ -2,6 +2,7 @@ import os
 import re
 import time
 import uuid
+from typing import Dict, List, Optional
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -73,8 +74,8 @@ def save_message(
     session_id: str,
     role: str,
     content: str,
-    mermaid_code: str | None = None,
-    cloudformation_yaml: str | None = None,
+    mermaid_code: Optional[str] = None,
+    cloudformation_yaml: Optional[str] = None,
 ) -> str:
     item = {
         "sessionID": session_id,
@@ -96,7 +97,7 @@ def save_message(
     return item["messageTs"]
 
 
-def get_recent_chat_messages(session_id: str, limit: int | None = None) -> list[dict]:
+def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> List[Dict]:
     message_limit = limit or chat_history_limit
     response = messages_table.query(
         KeyConditionExpression=Key("sessionID").eq(session_id),
@@ -123,7 +124,7 @@ def get_recent_chat_messages(session_id: str, limit: int | None = None) -> list[
     return chat_messages
 
 
-def extract_mermaid_code(content: str) -> str | None:
+def extract_mermaid_code(content: str) -> Optional[str]:
     if not content:
         return None
 
@@ -134,7 +135,7 @@ def extract_mermaid_code(content: str) -> str | None:
     return match.group(1).strip()
 
 
-def get_latest_assistant_architecture_context(session_id: str) -> dict | None:
+def get_latest_assistant_architecture_context(session_id: str) -> Optional[Dict]:
     response = messages_table.query(
         KeyConditionExpression=Key("sessionID").eq(session_id),
         ScanIndexForward=False,

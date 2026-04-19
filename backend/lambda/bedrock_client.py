@@ -1,6 +1,7 @@
 import boto3
 import json
 import re
+from typing import List, Optional
 
 bedrock = boto3.client(
     "bedrock-runtime",
@@ -64,7 +65,7 @@ def invoke_bedrock(
     system_prompt: str,
     user_message: str,
     tool_type: str = "mermaid",
-    conversation_history: list | None = None,
+    conversation_history: Optional[List] = None,
 ) -> dict:
     try:
         # Select the correct tool schema based on the requested type

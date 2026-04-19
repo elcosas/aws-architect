@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+from typing import Optional, Tuple
 
 import boto3
 
@@ -99,7 +100,7 @@ def build_user_message_for_storage(user_input: str, feedback: str = None, select
     return "\n".join(message_parts)
 
 
-def build_assistant_message_for_storage(result: dict) -> tuple[str, str | None, str | None]:
+def build_assistant_message_for_storage(result: dict) -> Tuple[str, Optional[str], Optional[str]]:
     if not isinstance(result, dict):
         return str(result), None, None
 
