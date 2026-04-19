@@ -69,7 +69,10 @@ def invoke_bedrock(system_prompt: str, user_message: str, tool_type: str = "merm
                 "role": "user",
                 "content": [{"text": user_message}]
             }],
-            toolConfig={"tools": tools}
+            toolConfig={
+                "tools": tools,
+                "toolChoice": {"any": {}}
+            }
         )
 
         # Extract the content blocks from the response message
