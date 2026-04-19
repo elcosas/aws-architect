@@ -131,11 +131,20 @@ function App() {
     }
   };
 
+  // --- INITIATE DEPLOY (ASK "ARE YOU SURE?" FIRST) ---
+  const handleInitiateDeploy = () => {
+    const isConfirmed = window.confirm("Are you sure you want to proceed to deployment? This will eventually create live resources in your AWS account and may incur charges.");
+    
+    if (isConfirmed) {
+      setIsDeployModalOpen(true);
+    }
+  };
+
   // --- DEPLOY FLOW (HANDLES BOTH MODES) ---
   const handleFinalDeploy = (e) => {
     e.preventDefault();
     
-    // 1. REGEX VALIDATION (Always runs)
+    // 1. REGEX VALIDATION
     const accessKeyRegex = /^(AKIA|ASIA)[A-Z0-9]{16}$/;
     const secretKeyRegex = /^[A-Za-z0-9/+=]{40}$/;
 
@@ -149,7 +158,7 @@ function App() {
       return; 
     }
 
-    // Validation passed
+    // Validation passed!
     setCredentialError('');
     setIsDeployModalOpen(false); 
     
@@ -219,8 +228,9 @@ function App() {
                 
                 {index === messages.length - 1 && msg.role === 'assistant' && msg.content.includes('```mermaid') && (
                   <div style={{ marginTop: '12px', textAlign: 'right' }}>
+                    {/* CHANGED: Now calls handleInitiateDeploy instead of opening modal directly */}
                     <button 
-                      onClick={() => setIsDeployModalOpen(true)} 
+                      onClick={handleInitiateDeploy} 
                       style={{
                         backgroundColor: '#238636', 
                         color: 'white', 
