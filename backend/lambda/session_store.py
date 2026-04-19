@@ -2,7 +2,7 @@ import os
 import re
 import time
 import uuid
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -36,9 +36,43 @@ sessions_table = dynamodb.Table(_resolve_sessions_table_name())
 messages_table = dynamodb.Table(_resolve_messages_table_name())
 session_ttl_seconds = int(os.getenv("SESSION_TTL_SECONDS", str(DEFAULT_SESSION_TTL_SECONDS)))
 chat_history_limit = int(os.getenv("CHAT_HISTORY_LIMIT", str(DEFAULT_CHAT_HISTORY_LIMIT)))
+session_sort_value = os.getenv("SESSION_SORT_VALUE", "SESSION")
+
+_key_schema_cache: Dict[str, Tuple[str, Optional[str]]] = {}
 
 
 MERMAID_BLOCK_PATTERN = re.compile(r"```mermaid\s*(.*?)```", re.IGNORECASE | re.DOTALL)
+
+
+def _get_table_keys(table) -> Tuple[str, Optional[str]]:
+    table_name = table.name
+    cached = _key_schema_cache.get(table_name)
+    if cached:
+        return cached
+
+    description = table.meta.client.describe_table(TableName=table_name)["Table"]
+    hash_key = next(
+        key["AttributeName"] for key in description["KeySchema"] if key["KeyType"] == "HASH"
+    )
+    range_key = next(
+        (key["AttributeName"] for key in description["KeySchema"] if key["KeyType"] == "RANGE"),
+        None,
+    )
+
+    _key_schema_cache[table_name] = (hash_key, range_key)
+    return hash_key, range_key
+
+
+def _session_primary_key(session_id: str) -> Dict[str, str]:
+    hash_key, range_key = _get_table_keys(sessions_table)
+    key: Dict[str, str] = {hash_key: session_id}
+    if range_key:
+        key[range_key] = session_sort_value
+    return key
+
+
+def _message_sort_value() -> str:
+    return build_message_ts()
 
 
 def generate_session_id() -> str:
@@ -60,18 +94,24 @@ def build_message_ts() -> str:
 
 def ensure_session(session_id: str, state: str = "ARCH_DRAFT") -> None:
     now = now_epoch_seconds()
+    hash_key, range_key = _get_table_keys(sessions_table)
+
+    item = {
+        hash_key: session_id,
+        "state": state,
+        "revision": 0,
+        "createdAt": now,
+        "updatedAt": now,
+        "expiresAt": expires_at_epoch_seconds(),
+    }
+    if range_key:
+        item[range_key] = session_sort_value
 
     try:
         sessions_table.put_item(
-            Item={
-                "sessionID": session_id,
-                "state": state,
-                "revision": 0,
-                "createdAt": now,
-                "updatedAt": now,
-                "expiresAt": expires_at_epoch_seconds(),
-            },
-            ConditionExpression="attribute_not_exists(sessionID)",
+            Item=item,
+            ConditionExpression="attribute_not_exists(#pk)",
+            ExpressionAttributeNames={"#pk": hash_key},
         )
     except sessions_table.meta.client.exceptions.ConditionalCheckFailedException:
         touch_session(session_id)
@@ -79,7 +119,7 @@ def ensure_session(session_id: str, state: str = "ARCH_DRAFT") -> None:
 
 def touch_session(session_id: str) -> None:
     sessions_table.update_item(
-        Key={"sessionID": session_id},
+        Key=_session_primary_key(session_id),
         UpdateExpression="SET updatedAt = :updated_at, expiresAt = :expires_at",
         ExpressionAttributeValues={
             ":updated_at": now_epoch_seconds(),
@@ -95,14 +135,19 @@ def save_message(
     mermaid_code: Optional[str] = None,
     cloudformation_yaml: Optional[str] = None,
 ) -> str:
+    messages_hash_key, messages_range_key = _get_table_keys(messages_table)
+    message_ts = _message_sort_value()
+
     item = {
-        "sessionID": session_id,
-        "messageTs": build_message_ts(),
+        messages_hash_key: session_id,
+        "messageTs": message_ts,
         "role": role,
         "content": content,
         "createdAt": now_epoch_seconds(),
         "expiresAt": expires_at_epoch_seconds(),
     }
+    if messages_range_key:
+        item[messages_range_key] = message_ts
 
     if mermaid_code:
         item["mermaid_code"] = mermaid_code
@@ -117,13 +162,20 @@ def save_message(
 
 def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> List[Dict]:
     message_limit = limit or chat_history_limit
-    response = messages_table.query(
-        KeyConditionExpression=Key("sessionID").eq(session_id),
-        ScanIndexForward=False,
-        Limit=message_limit,
-    )
+    messages_hash_key, messages_range_key = _get_table_keys(messages_table)
 
-    items = list(reversed(response.get("Items", [])))
+    query_args = {
+        "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
+        "Limit": message_limit,
+    }
+    if messages_range_key:
+        query_args["ScanIndexForward"] = False
+
+    response = messages_table.query(**query_args)
+
+    items = response.get("Items", [])
+    if messages_range_key:
+        items = list(reversed(items))
     chat_messages = []
     for item in items:
         role = item.get("role")
@@ -154,13 +206,20 @@ def extract_mermaid_code(content: str) -> Optional[str]:
 
 
 def get_latest_assistant_architecture_context(session_id: str) -> Optional[Dict]:
-    response = messages_table.query(
-        KeyConditionExpression=Key("sessionID").eq(session_id),
-        ScanIndexForward=False,
-        Limit=50,
-    )
+    messages_hash_key, messages_range_key = _get_table_keys(messages_table)
+
+    query_args = {
+        "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
+        "Limit": 50,
+    }
+    if messages_range_key:
+        query_args["ScanIndexForward"] = False
+
+    response = messages_table.query(**query_args)
 
     items = response.get("Items", [])
+    if not messages_range_key:
+        items = sorted(items, key=lambda item: item.get("createdAt", 0), reverse=True)
     for item in items:
         if item.get("role") != "assistant":
             continue
