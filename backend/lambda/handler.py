@@ -15,14 +15,23 @@ CFN_SYSTEM_PROMPT = open(
 # Initialize API Gateway Management API client for WebSocket responses
 # ---------------------------------------------------------
 def get_apigw_management_client(event):
-    domain_name = event["requestContext"]["domainName"]
-    stage = event["requestContext"]["stage"]
+    request_context = event.get("requestContext", {})
+    domain_name = request_context.get("domainName")
+    stage = request_context.get("stage")
+
+    if not domain_name or not stage:
+        return None
+
     return boto3.client("apigatewaymanagementapi", endpoint_url=f"https://{domain_name}/{stage}")
 
 # ---------------------------------------------------------
 # Send message back to client through WebSocket
 # ---------------------------------------------------------
 def send_message_to_client(apigw_client, connection_id, message):
+    if apigw_client is None or not connection_id:
+        print("Unable to send WebSocket message: missing API Gateway client or connection ID")
+        return
+
     try:
         apigw_client.post_to_connection(
             ConnectionId=connection_id,
@@ -39,10 +48,15 @@ def send_message_to_client(apigw_client, connection_id, message):
 # messages to process user architecture requests.
 # ---------------------------------------------------------
 def handler(event, context):
-    # Extract route key and connection ID
-    route = event["requestContext"]["routeKey"]
-    connection_id = event["requestContext"]["connectionId"]
-    apigw_client = get_apigw_management_client(event)
+    request_context = event.get("requestContext", {})
+    route = request_context.get("routeKey", "")
+    connection_id = request_context.get("connectionId", "")
+
+    body = json.loads(event.get("body", "{}"))
+
+    # Support deployments where API Gateway uses "$default" plus action in body
+    if route == "$default":
+        route = body.get("action", "$default")
 
     # Handle the initial connection handshake
     if route == "$connect":
@@ -52,10 +66,11 @@ def handler(event, context):
     if route == "$disconnect":
         return {"statusCode": 200}
 
+    apigw_client = get_apigw_management_client(event)
+
     # Process user messages and diagram rejections
     if route in ("sendMessage", "rejectDiagram"):
         # Parse the JSON body from the incoming event
-        body = json.loads(event.get("body", "{}"))
         user_input = body.get("userInput", "")
         feedback = body.get("feedback", None)
         selected_services = body.get("services", [])
@@ -70,7 +85,6 @@ def handler(event, context):
 
     # Generate CloudFormation based on approved diagram
     if route == "generateCloudFormation":
-        body = json.loads(event.get("body", "{}"))
         user_input = body.get("userInput", "")
         approved_diagram = body.get("approvedDiagram", "")
         selected_services = body.get("services", [])
