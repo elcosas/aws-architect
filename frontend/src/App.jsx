@@ -225,6 +225,7 @@ function App() {
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [selectedServices, setSelectedServices] = useState([]);
   const [activeServiceInfo, setActiveServiceInfo] = useState(null);
+  const [expandedAnalysisByMessage, setExpandedAnalysisByMessage] = useState({});
   const [chatBodyHeight, setChatBodyHeight] = useState(null);
   const [inputAreaHeight, setInputAreaHeight] = useState(null);
   const [isResizingChat, setIsResizingChat] = useState(false);
@@ -249,6 +250,13 @@ function App() {
       responseTimeoutRef.current = null;
     }
   };
+
+  const toggleAnalysisDetails = (messageIndex) => {
+    setExpandedAnalysisByMessage((prev) => ({
+      ...prev,
+      [messageIndex]: !prev[messageIndex],
+    }))
+  }
 
   const startResponseTimeout = () => {
     clearResponseTimeout();
@@ -583,10 +591,34 @@ function App() {
           storeSessionId(mockSessionID);
         }
 
+        const selectedSummary = selectedServices.length > 0
+          ? selectedServices.join(', ')
+          : 'API Gateway, AWS Lambda, DynamoDB'
+
+        const mockAnalysis = {
+          why_this_architecture:
+            `This architecture uses an API entry point, serverless compute, and managed persistence for a scalable and low-ops baseline. It aligns with your selected services: ${selectedSummary}.`,
+          pros: [
+            'Serverless path reduces operational overhead',
+            'Components can scale independently with traffic',
+            'Managed services simplify reliability and maintenance',
+            'Clear separation between API, compute, and data layers',
+          ],
+          cons: [
+            'Cold starts may add occasional latency',
+            'Distributed architecture can be harder to debug',
+            'Costs can increase with very high request volumes',
+            'Strong IAM boundaries are required to stay secure',
+          ],
+          improvements:
+            'Add CloudFront caching, observability dashboards/alarms, and stricter IAM least-privilege policies. For production, also add retries, DLQs, and performance testing under load.',
+        }
+
         setIsLoading(false);
         setMessages(prev => [...prev, { 
           role: 'assistant', 
-          content: "Here is the architecture based on your request:\n\n```mermaid\ngraph LR\nUser --> API[API Gateway]\nAPI --> Lambda[AWS Lambda]\nLambda --> DB[(DynamoDB)]\n```\n\n---\n\n**Why this architecture:** This design uses API Gateway and Lambda for serverless request handling with DynamoDB for durable application data.\n\n**Selected services:** API Gateway, AWS Lambda, DynamoDB\n\n**Detected in diagram:** API Gateway, AWS Lambda, DynamoDB", 
+          content: "Here is your architecture:\n\n```mermaid\ngraph LR\nUser --> API[API Gateway]\nAPI --> Lambda[AWS Lambda]\nLambda --> DB[(DynamoDB)]\n```", 
+          analysis: mockAnalysis,
           timestamp: getCurrentTime() 
         }]);
       }, 1500);
@@ -957,28 +989,46 @@ function App() {
                     <h4>Why this architecture</h4>
                     <p>{msg.analysis.why_this_architecture}</p>
 
-                    <div className="reasoning-pros-cons-grid">
-                      <div className="reasoning-column reasoning-column--pros">
-                        <h5>Pros</h5>
-                        <ul>
-                          {(msg.analysis.pros || []).map((item, idx) => (
-                            <li key={`pro-${idx}-${item}`}>{item}</li>
-                          ))}
-                        </ul>
-                      </div>
+                    {expandedAnalysisByMessage[index] && (
+                      <>
+                        <div className="reasoning-pros-cons-grid">
+                          <div className="reasoning-column reasoning-column--pros">
+                            <h5>Pros</h5>
+                            <ul>
+                              {(msg.analysis.pros || []).map((item, idx) => (
+                                <li key={`pro-${idx}-${item}`}>{item}</li>
+                              ))}
+                            </ul>
+                          </div>
 
-                      <div className="reasoning-column reasoning-column--cons">
-                        <h5>Cons</h5>
-                        <ul>
-                          {(msg.analysis.cons || []).map((item, idx) => (
-                            <li key={`con-${idx}-${item}`}>{item}</li>
-                          ))}
-                        </ul>
-                      </div>
+                          <div className="reasoning-column reasoning-column--cons">
+                            <h5>Cons</h5>
+                            <ul>
+                              {(msg.analysis.cons || []).map((item, idx) => (
+                                <li key={`con-${idx}-${item}`}>{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+
+                        <h4>Improvements</h4>
+                        <p>{msg.analysis.improvements}</p>
+                      </>
+                    )}
+
+                    <div className="analysis-toggle-row">
+                      <button
+                        type="button"
+                        className="analysis-toggle-button"
+                        aria-expanded={Boolean(expandedAnalysisByMessage[index])}
+                        aria-label={expandedAnalysisByMessage[index] ? 'Hide architecture details' : 'Show architecture details'}
+                        onClick={() => toggleAnalysisDetails(index)}
+                      >
+                        <span className="analysis-toggle-button__icon" aria-hidden="true">
+                          {expandedAnalysisByMessage[index] ? '−' : '+'}
+                        </span>
+                      </button>
                     </div>
-
-                    <h4>Improvements</h4>
-                    <p>{msg.analysis.improvements}</p>
                   </section>
                 )}
 

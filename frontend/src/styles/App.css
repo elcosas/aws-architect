@@ -1382,6 +1382,38 @@
   color: #ff6f6f;
 }
 
+.analysis-toggle-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.analysis-toggle-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(170, 59, 255, 0.46);
+  background: linear-gradient(135deg, rgba(32, 25, 39, 0.94) 0%, rgba(30, 31, 36, 0.96) 100%);
+  color: #ffb84d;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.analysis-toggle-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 153, 0, 0.78);
+  box-shadow: 0 6px 14px rgba(170, 59, 255, 0.2);
+}
+
+.analysis-toggle-button__icon {
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 700;
+}
+
 /* --- 8. MERMAID DIAGRAM STYLING --- */
 .mermaid-wrapper {
   display: flex;
@@ -1831,6 +1863,17 @@
 .theme-light .reasoning-column {
   border-color: #d8dee8;
   background: rgba(248, 250, 252, 0.9);
+}
+
+.theme-light .analysis-toggle-button {
+  border-color: rgba(124, 58, 237, 0.35);
+  background: linear-gradient(135deg, #ffffff 0%, #f3edff 100%);
+  color: #b45309;
+}
+
+.theme-light .analysis-toggle-button:hover {
+  border-color: rgba(217, 119, 6, 0.62);
+  box-shadow: 0 6px 14px rgba(124, 58, 237, 0.16);
 }
 
 .theme-light .mermaid-wrapper {
