@@ -7,21 +7,13 @@ from typing import Dict, List, Optional, Tuple
 import boto3
 from boto3.dynamodb.conditions import Key
 
-DEFAULT_SESSIONS_TABLE = "aws-architect-sessions"
 DEFAULT_MESSAGES_TABLE = "aws-architect-messages"
 DEFAULT_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
 DEFAULT_CHAT_HISTORY_LIMIT = 20
+ASSISTANT_MERMAID_SEPARATOR = "\n\n<<<MERMAID_DIAGRAM>>>\n\n"
 
 
 dynamodb = boto3.resource("dynamodb")
-
-
-def _resolve_sessions_table_name() -> str:
-    return (
-        os.getenv("SESSIONS_TABLE")
-        or os.getenv("SESSION_TABLE")
-        or DEFAULT_SESSIONS_TABLE
-    )
 
 
 def _resolve_messages_table_name() -> str:
@@ -32,11 +24,9 @@ def _resolve_messages_table_name() -> str:
     )
 
 
-sessions_table = dynamodb.Table(_resolve_sessions_table_name())
 messages_table = dynamodb.Table(_resolve_messages_table_name())
 session_ttl_seconds = int(os.getenv("SESSION_TTL_SECONDS", str(DEFAULT_SESSION_TTL_SECONDS)))
 chat_history_limit = int(os.getenv("CHAT_HISTORY_LIMIT", str(DEFAULT_CHAT_HISTORY_LIMIT)))
-session_sort_value = os.getenv("SESSION_SORT_VALUE", "SESSION")
 
 _key_schema_cache: Dict[str, Tuple[str, Optional[str]]] = {}
 
@@ -63,14 +53,6 @@ def _get_table_keys(table) -> Tuple[str, Optional[str]]:
     return hash_key, range_key
 
 
-def _session_primary_key(session_id: str) -> Dict[str, str]:
-    hash_key, range_key = _get_table_keys(sessions_table)
-    key: Dict[str, str] = {hash_key: session_id}
-    if range_key:
-        key[range_key] = session_sort_value
-    return key
-
-
 def _message_sort_value() -> str:
     return build_message_ts()
 
@@ -92,48 +74,34 @@ def build_message_ts() -> str:
     return f"{int(time.time() * 1000):013d}-{uuid.uuid4().hex[:8]}"
 
 
-def ensure_session(session_id: str, state: str = "ARCH_DRAFT") -> None:
-    now = now_epoch_seconds()
-    hash_key, range_key = _get_table_keys(sessions_table)
+def build_assistant_message_content(assistant_text: str, mermaid_code: Optional[str] = None) -> str:
+    if not mermaid_code:
+        return (assistant_text or "").strip()
 
-    item = {
-        hash_key: session_id,
-        "state": state,
-        "revision": 0,
-        "createdAt": now,
-        "updatedAt": now,
-        "expiresAt": expires_at_epoch_seconds(),
-    }
-    if range_key:
-        item[range_key] = session_sort_value
-
-    try:
-        sessions_table.put_item(
-            Item=item,
-            ConditionExpression="attribute_not_exists(#pk)",
-            ExpressionAttributeNames={"#pk": hash_key},
-        )
-    except sessions_table.meta.client.exceptions.ConditionalCheckFailedException:
-        touch_session(session_id)
+    normalized_text = (assistant_text or "").strip()
+    mermaid_block = f"```mermaid\n{mermaid_code.strip()}\n```"
+    if not normalized_text:
+        normalized_text = "Architecture response"
+    return f"{normalized_text}{ASSISTANT_MERMAID_SEPARATOR}{mermaid_block}"
 
 
-def touch_session(session_id: str) -> None:
-    sessions_table.update_item(
-        Key=_session_primary_key(session_id),
-        UpdateExpression="SET updatedAt = :updated_at, expiresAt = :expires_at",
-        ExpressionAttributeValues={
-            ":updated_at": now_epoch_seconds(),
-            ":expires_at": expires_at_epoch_seconds(),
-        },
-    )
+def parse_assistant_message_content(message_content: str) -> Tuple[str, Optional[str]]:
+    content = (message_content or "").strip()
+    if not content:
+        return "", None
+
+    if ASSISTANT_MERMAID_SEPARATOR not in content:
+        return content, extract_mermaid_code(content)
+
+    assistant_text, mermaid_segment = content.split(ASSISTANT_MERMAID_SEPARATOR, 1)
+    return assistant_text.strip(), extract_mermaid_code(mermaid_segment)
 
 
 def save_message(
     session_id: str,
     role: str,
-    content: str,
-    mermaid_code: Optional[str] = None,
-    cloudformation_yaml: Optional[str] = None,
+    message_content: str,
+    message_type: str = "standard",
 ) -> str:
     messages_hash_key, messages_range_key = _get_table_keys(messages_table)
     message_ts = _message_sort_value()
@@ -142,21 +110,13 @@ def save_message(
         messages_hash_key: session_id,
         "messageTs": message_ts,
         "role": role,
-        "content": content,
-        "createdAt": now_epoch_seconds(),
-        "expiresAt": expires_at_epoch_seconds(),
+        "message_type": message_type,
+        "message_content": message_content,
     }
     if messages_range_key:
         item[messages_range_key] = message_ts
 
-    if mermaid_code:
-        item["mermaid_code"] = mermaid_code
-
-    if cloudformation_yaml:
-        item["cloudformation_yaml"] = cloudformation_yaml
-
     messages_table.put_item(Item=item)
-    touch_session(session_id)
     return item["messageTs"]
 
 
@@ -176,10 +136,16 @@ def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> Li
     items = response.get("Items", [])
     if messages_range_key:
         items = list(reversed(items))
+    else:
+        items = sorted(items, key=lambda item: item.get("messageTs", ""))
+
     chat_messages = []
     for item in items:
+        if item.get("message_type", "standard") != "standard":
+            continue
+
         role = item.get("role")
-        content = item.get("content")
+        content = item.get("message_content") or item.get("content")
 
         if role not in ("user", "assistant") or not content:
             continue
@@ -219,18 +185,22 @@ def get_latest_assistant_architecture_context(session_id: str) -> Optional[Dict]
 
     items = response.get("Items", [])
     if not messages_range_key:
-        items = sorted(items, key=lambda item: item.get("createdAt", 0), reverse=True)
+        items = sorted(items, key=lambda item: item.get("messageTs", ""), reverse=True)
+
     for item in items:
+        if item.get("message_type", "standard") != "standard":
+            continue
+
         if item.get("role") != "assistant":
             continue
 
-        content = item.get("content", "")
-        mermaid_code = item.get("mermaid_code") or extract_mermaid_code(content)
+        content = item.get("message_content") or item.get("content", "")
+        assistant_message, mermaid_code = parse_assistant_message_content(content)
         if not mermaid_code:
             continue
 
         return {
-            "assistant_message": content,
+            "assistant_message": assistant_message,
             "mermaid_code": mermaid_code,
             "messageTs": item.get("messageTs"),
         }
