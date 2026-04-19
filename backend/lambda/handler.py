@@ -1,5 +1,6 @@
 import json
 import os
+import base64
 import boto3
 from bedrock_client import invoke_bedrock
 
@@ -42,6 +43,36 @@ def send_message_to_client(apigw_client, connection_id, message):
     except Exception as e:
         print(f"Error sending message to {connection_id}: {str(e)}")
 
+
+def parse_event_body(event):
+    """Parse API Gateway WebSocket event body safely for proxy/non-proxy shapes."""
+    raw_body = event.get("body", "{}")
+
+    if raw_body is None:
+        return {}
+
+    if isinstance(raw_body, dict):
+        return raw_body
+
+    if event.get("isBase64Encoded") and isinstance(raw_body, str):
+        try:
+            raw_body = base64.b64decode(raw_body).decode("utf-8")
+        except Exception as e:
+            print(f"Failed to decode base64 body: {e}")
+            return {}
+
+    if isinstance(raw_body, str):
+        raw_body = raw_body.strip()
+        if not raw_body:
+            return {}
+        try:
+            return json.loads(raw_body)
+        except json.JSONDecodeError as e:
+            print(f"Invalid JSON body: {e}; raw={raw_body[:300]}")
+            return {}
+
+    return {}
+
 # ---------------------------------------------------------
 # Step 1: AWS Lambda entry point
 # Handles API Gateway WebSocket events and routes incoming
@@ -51,52 +82,57 @@ def handler(event, context):
     request_context = event.get("requestContext", {})
     route = request_context.get("routeKey", "")
     connection_id = request_context.get("connectionId", "")
-
-    body = json.loads(event.get("body", "{}"))
-
-    # Support deployments where API Gateway uses "$default" plus action in body
-    if route == "$default":
-        route = body.get("action", "$default")
-
-    # Handle the initial connection handshake
-    if route == "$connect":
-        return {"statusCode": 200}
-
-    # Handle the disconnect event
-    if route == "$disconnect":
-        return {"statusCode": 200}
-
     apigw_client = get_apigw_management_client(event)
 
-    # Process user messages and diagram rejections
-    if route in ("sendMessage", "rejectDiagram"):
-        # Parse the JSON body from the incoming event
-        user_input = body.get("userInput", "")
-        feedback = body.get("feedback", None)
-        selected_services = body.get("services", [])
+    try:
+        body = parse_event_body(event)
 
-        # Build the system prompt and invoke Bedrock
-        prompt = build_prompt(user_input, feedback, selected_services)
-        result = invoke_bedrock(SYSTEM_PROMPT, prompt)
+        # Support deployments where API Gateway uses "$default" plus action in body
+        if route == "$default":
+            route = body.get("action", "$default")
 
-        # Send the generated Mermaid JS diagram back through WebSocket
-        send_message_to_client(apigw_client, connection_id, result)
+        # Handle the initial connection handshake
+        if route == "$connect":
+            return {"statusCode": 200}
+
+        # Handle the disconnect event
+        if route == "$disconnect":
+            return {"statusCode": 200}
+
+        # Process user messages and diagram rejections
+        if route in ("sendMessage", "rejectDiagram"):
+            user_input = body.get("userInput", "")
+            feedback = body.get("feedback", None)
+            selected_services = body.get("services", [])
+
+            # Build the system prompt and invoke Bedrock
+            prompt = build_prompt(user_input, feedback, selected_services)
+            result = invoke_bedrock(SYSTEM_PROMPT, prompt)
+
+            # Send the generated Mermaid JS diagram back through WebSocket
+            send_message_to_client(apigw_client, connection_id, result)
+            return {"statusCode": 200}
+
+        # Generate CloudFormation based on approved diagram
+        if route == "generateCloudFormation":
+            user_input = body.get("userInput", "")
+            approved_diagram = body.get("approvedDiagram", "")
+            selected_services = body.get("services", [])
+
+            prompt = build_cfn_prompt(user_input, approved_diagram, selected_services)
+            result = invoke_bedrock(CFN_SYSTEM_PROMPT, prompt, tool_type="cloudformation")
+
+            # Send the CloudFormation result back through WebSocket
+            send_message_to_client(apigw_client, connection_id, result)
+            return {"statusCode": 200}
+
+        send_message_to_client(apigw_client, connection_id, {"error": f"Unknown route: {route}"})
         return {"statusCode": 200}
 
-    # Generate CloudFormation based on approved diagram
-    if route == "generateCloudFormation":
-        user_input = body.get("userInput", "")
-        approved_diagram = body.get("approvedDiagram", "")
-        selected_services = body.get("services", [])
-
-        prompt = build_cfn_prompt(user_input, approved_diagram, selected_services)
-        result = invoke_bedrock(CFN_SYSTEM_PROMPT, prompt, tool_type="cloudformation")
-
-        # Send the CloudFormation result back through WebSocket
-        send_message_to_client(apigw_client, connection_id, result)
+    except Exception as e:
+        print(f"Unhandled handler exception: {e}")
+        send_message_to_client(apigw_client, connection_id, {"error": f"Internal handler error: {str(e)}"})
         return {"statusCode": 200}
-
-    return {"statusCode": 400, "body": "Unknown route"}
 
 # ---------------------------------------------------------
 # Step 2: Prompt Construction
