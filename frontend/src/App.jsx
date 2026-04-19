@@ -6,9 +6,11 @@ import './styles/App.css'
 // ==========================================
 // 🚀 MASTER SWITCH: TEST MODE VS LIVE MODE
 // ==========================================
-// Change this to 'false' when the backend team is ready!
-const IS_TEST_MODE = false; 
-const WS_URL = 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev';
+// Defaults to TEST mode unless VITE_TEST_MODE is explicitly set to "false".
+// Example for live mode: VITE_TEST_MODE=false VITE_WS_URL=wss://... npm run dev
+const IS_TEST_MODE = import.meta.env.VITE_TEST_MODE !== 'false'
+const WS_URL =
+  import.meta.env.VITE_WS_URL || 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev'
 
 const getCurrentTime = () => {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -125,7 +127,7 @@ function App() {
         setIsLoading(false);
         setMessages(prev => [...prev, { 
           role: 'assistant', 
-          content: `**Connection Error:** I cannot reach the AWS backend. Please make sure the server is online.`, 
+          content: `**Connection Error:** I cannot reach the AWS backend at \`${WS_URL}\`. If you are developing locally and want mocked responses, enable test mode with \`VITE_TEST_MODE=true\`.`, 
           timestamp: getCurrentTime() 
         }]);
         return;
@@ -185,8 +187,10 @@ function App() {
         return;
       }
       ws.send(JSON.stringify({ 
-        action: "confirmArchitecture", 
-        userInput: "approved",
+        action: "generateCloudFormation", 
+        userInput: "approved architecture",
+        approvedDiagram: "",
+        services: [],
         credentials: awsCredentials
       }));
     }
