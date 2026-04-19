@@ -1037,7 +1037,14 @@ function App() {
               {msg.timestamp && <div className="message-timestamp">{msg.timestamp}</div>}
             </div>
           ))}
-          {isLoading && <div className="message assistant"><div className="message-content typing-indicator"><span className="dot"></span><span className="dot"></span><span className="dot"></span></div></div>}
+          {isLoading && (
+            <div className="message assistant">
+              <div className="message-content typing-indicator" aria-live="polite">
+                <span className="typing-indicator__label">Generating response</span>
+                <span className="typing-indicator__dots" aria-hidden="true">...</span>
+              </div>
+            </div>
+          )}
           </main>
         ) : (
           <div className="home-screen">
