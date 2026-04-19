@@ -22,6 +22,10 @@ TOOL_DEFINITIONS = [
                         "mermaid_code": {
                             "type": "string",
                             "description": "Valid Mermaid JS code using graph LR syntax"
+                        },
+                        "architecture_reasoning": {
+                            "type": "string",
+                            "description": "Short explanation of why these services and connections were chosen"
                         }
                     },
                     "required": ["mermaid_code"]
@@ -95,9 +99,21 @@ def invoke_bedrock(system_prompt: str, user_message: str, tool_type: str = "merm
                 if yaml_match:
                     return {"cloudformation_yaml": yaml_match.group(1).strip()}
             else:
+                # Try to parse JSON if the model returned a plain JSON object as text
+                try:
+                    maybe_json = json.loads(combined_text)
+                    if isinstance(maybe_json, dict) and "mermaid_code" in maybe_json:
+                        return maybe_json
+                except Exception:
+                    pass
+
                 mermaid_match = re.search(r"```(?:mermaid)?\n([\s\S]*?)```", combined_text, re.IGNORECASE)
                 if mermaid_match:
-                    return {"mermaid_code": mermaid_match.group(1).strip()}
+                    reasoning_text = re.sub(r"```(?:mermaid)?\n[\s\S]*?```", "", combined_text, flags=re.IGNORECASE).strip()
+                    output = {"mermaid_code": mermaid_match.group(1).strip()}
+                    if reasoning_text:
+                        output["architecture_reasoning"] = reasoning_text[:800]
+                    return output
 
             return {"error": f"Bedrock returned text instead of tool call: {combined_text[:400]}"}
 

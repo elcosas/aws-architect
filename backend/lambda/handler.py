@@ -3,6 +3,7 @@ import os
 import base64
 import boto3
 from bedrock_client import invoke_bedrock
+from validation import validate_mermaid_syntax
 
 SYSTEM_PROMPT = open(
     os.path.join(os.path.dirname(__file__), "system-prompt.txt")
@@ -11,6 +12,19 @@ SYSTEM_PROMPT = open(
 CFN_SYSTEM_PROMPT = open(
     os.path.join(os.path.dirname(__file__), "cfn-prompt.txt")
 ).read()
+
+SERVICE_MATCHERS = {
+    "Amazon Bedrock": ["bedrock"],
+    "AWS Lambda": ["lambda"],
+    "Amazon S3": ["s3", "bucket", "simple storage"],
+    "API Gateway": ["api gateway", "apigateway", "apigw", "gateway"],
+    "CloudFront": ["cloudfront"],
+    "CloudFormation": ["cloudformation", "cfn"],
+    "DynamoDB": ["dynamodb", "ddb"],
+    "AWS IAM": ["iam", "identity center", "sts", "identity and access management"],
+}
+
+ALLOWED_SERVICE_SET = set(SERVICE_MATCHERS.keys())
 
 # ---------------------------------------------------------
 # Initialize API Gateway Management API client for WebSocket responses
@@ -86,6 +100,43 @@ def proxy_response(status_code=200, body=None):
         "body": body,
     }
 
+
+def normalize_selected_services(services):
+    if not isinstance(services, list):
+        return []
+    return [service for service in services if isinstance(service, str) and service in ALLOWED_SERVICE_SET]
+
+
+def extract_used_services_from_mermaid(mermaid_code):
+    used = set()
+    source = (mermaid_code or "").lower()
+    for service_name, aliases in SERVICE_MATCHERS.items():
+        for alias in aliases:
+            if alias in source:
+                used.add(service_name)
+                break
+    return used
+
+
+def build_architecture_feedback(result: dict, selected_services: list[str], used_services: set[str]) -> str:
+    """Create user-facing feedback text shown with the generated diagram."""
+    feedback_lines: list[str] = []
+
+    reasoning = (result.get("architecture_reasoning") or "").strip()
+    if reasoning:
+        feedback_lines.append(f"**Why this architecture:** {reasoning}")
+
+    feedback_lines.append(f"**Selected services:** {', '.join(selected_services)}")
+    if used_services:
+        feedback_lines.append(f"**Detected in diagram:** {', '.join(sorted(used_services))}")
+
+    syntax_result = validate_mermaid_syntax(result.get("mermaid_code", ""))
+    if syntax_result.get("warnings"):
+        warnings = "; ".join(item["message"] for item in syntax_result["warnings"][:3])
+        feedback_lines.append(f"**Validation notes:** {warnings}")
+
+    return "\n\n".join(feedback_lines)
+
 # ---------------------------------------------------------
 # Step 1: AWS Lambda entry point
 # Handles API Gateway WebSocket events and routes incoming
@@ -117,7 +168,15 @@ def handler(event, context):
         if route in ("sendMessage", "rejectDiagram"):
             user_input = body.get("userInput", "")
             feedback = body.get("feedback", None)
-            selected_services = body.get("services", [])
+            selected_services = normalize_selected_services(body.get("services", []))
+
+            if not selected_services:
+                send_message_to_client(
+                    apigw_client,
+                    connection_id,
+                    {"error": "Please select at least one allowed AWS service before generating a diagram."},
+                )
+                return proxy_response(200)
 
             if not user_input and not feedback:
                 send_message_to_client(apigw_client, connection_id, {"error": "Missing userInput/feedback"})
@@ -127,6 +186,22 @@ def handler(event, context):
             prompt = build_prompt(user_input, feedback, selected_services)
             result = invoke_bedrock(SYSTEM_PROMPT, prompt)
 
+            if result.get("mermaid_code"):
+                used_services = extract_used_services_from_mermaid(result.get("mermaid_code", ""))
+                selected_set = set(selected_services)
+                disallowed = sorted(service for service in used_services if service not in selected_set)
+
+                if disallowed:
+                    result = {
+                        "error": (
+                            "Generated diagram used services outside your selected set: "
+                            f"{', '.join(disallowed)}. "
+                            f"Selected services: {', '.join(selected_services)}."
+                        )
+                    }
+                else:
+                    result["feedback"] = build_architecture_feedback(result, selected_services, used_services)
+
             # Send the generated Mermaid JS diagram back through WebSocket
             send_message_to_client(apigw_client, connection_id, result)
             return proxy_response(200)
@@ -135,7 +210,15 @@ def handler(event, context):
         if route == "generateCloudFormation":
             user_input = body.get("userInput", "")
             approved_diagram = body.get("approvedDiagram", "")
-            selected_services = body.get("services", [])
+            selected_services = normalize_selected_services(body.get("services", []))
+
+            if not selected_services:
+                send_message_to_client(
+                    apigw_client,
+                    connection_id,
+                    {"error": "Please select at least one allowed AWS service before generating CloudFormation."},
+                )
+                return proxy_response(200)
 
             prompt = build_cfn_prompt(user_input, approved_diagram, selected_services)
             result = invoke_bedrock(CFN_SYSTEM_PROMPT, prompt, tool_type="cloudformation")

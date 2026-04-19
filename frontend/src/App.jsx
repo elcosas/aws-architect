@@ -128,7 +128,10 @@ function App() {
       try {
         const data = JSON.parse(event.data);
         if (data.mermaid_code) {
-          const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\``;
+          const feedbackSection = data.feedback
+            ? `\n\n---\n\n${data.feedback}`
+            : '';
+          const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\`${feedbackSection}`;
           setMessages(prev => [...prev, { role: 'assistant', content: botResponse, timestamp: getCurrentTime() }]);
         } else if (data.cloudformation_yaml) {
           const botResponse = `Here is your CloudFormation template:\n\n\`\`\`yaml\n${data.cloudformation_yaml}\n\`\`\``;
@@ -225,7 +228,7 @@ function App() {
         setIsLoading(false);
         setMessages(prev => [...prev, { 
           role: 'assistant', 
-          content: "Here is the architecture based on your request:\n\n```mermaid\ngraph LR\nUser --> API[API Gateway]\nAPI --> Lambda[AWS Lambda]\nLambda --> DB[(DynamoDB)]\n```", 
+          content: "Here is the architecture based on your request:\n\n```mermaid\ngraph LR\nUser --> API[API Gateway]\nAPI --> Lambda[AWS Lambda]\nLambda --> DB[(DynamoDB)]\n```\n\n---\n\n**Why this architecture:** This design uses API Gateway and Lambda for serverless request handling with DynamoDB for durable application data.\n\n**Selected services:** API Gateway, AWS Lambda, DynamoDB\n\n**Detected in diagram:** API Gateway, AWS Lambda, DynamoDB", 
           timestamp: getCurrentTime() 
         }]);
       }, 1500);
