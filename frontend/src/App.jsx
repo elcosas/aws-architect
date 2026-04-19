@@ -1066,13 +1066,19 @@ function App() {
         inputValue={inputValue}
         setInputValue={setInputValue}
         isLoading={isLoading}
-        awsServices={awsServices}
         activeServices={activeServices}
         selectedServices={selectedServices}
         handleServiceToggle={handleServiceToggle}
         setActiveServiceInfo={setActiveServiceInfo}
-        appMetaFooterRef={appMetaFooterRef}
       />
+
+      <div ref={appMetaFooterRef} className="app-meta-footer" aria-label="Application footer">
+        <span>© 2026 Cloud Weaver</span>
+        <span aria-hidden="true">•</span>
+        <a href="https://github.com/elcosas/aws-architect" target="_blank" rel="noreferrer">
+          About
+        </a>
+      </div>
 
       <ServiceInfoModal 
         activeServiceInfo={activeServiceInfo} 
