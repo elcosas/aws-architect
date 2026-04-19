@@ -21,7 +21,7 @@ first_event = {
     "body": json.dumps({
         "sessionID": None,
         "userInput": "A serverless application where users upload images, they get processed, and the metadata is saved.",
-        "services": ["Lambda", "S3", "DynamoDB"]
+        "services": ["AWS Lambda", "Amazon S3", "DynamoDB"]
     })
 }
 
@@ -50,7 +50,7 @@ second_event = {
     "body": json.dumps({
         "sessionID": session_id,
         "userInput": "Please add CloudFront in front of API Gateway.",
-        "services": ["Lambda", "S3", "DynamoDB", "CloudFront", "API Gateway"]
+        "services": ["AWS Lambda", "Amazon S3", "DynamoDB", "CloudFront", "API Gateway"]
     })
 }
 
@@ -78,7 +78,10 @@ cfn_event = {
     "body": json.dumps({
         "sessionID": session_id,
         "userInput": "Generate CloudFormation for the latest approved architecture.",
-        "arn": "arn:aws:iam::123456789012:role/ChatbotIntegrationRole-ChatbotConnect"
+        "arn": "arn:aws:iam::123456789012:role/ChatbotIntegrationRole-ChatbotConnect",
+        "region": "us-east-1",
+        "stackName": "CloudWeaverStack-localtest",
+        "setupStackName": "ChatbotConnect",
     })
 }
 
