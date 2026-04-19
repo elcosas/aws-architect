@@ -24,24 +24,47 @@ PROMPT_CACHE = {
     "cfn-prompt": None
 }
 
+PROMPT_BUCKET_ENV = "PROMPTS_BUCKET"
+PROMPT_PREFIX_ENV = "PROMPTS_PREFIX"
+
+
+def _read_local_prompt(prompt_type: str) -> str:
+    local_path = os.path.join(os.path.dirname(__file__), f"{prompt_type}.txt")
+    with open(local_path, "r", encoding="utf-8") as prompt_file:
+        return prompt_file.read()
+
 def get_system_prompt(prompt_type="system-prompt"):
-    """Fetch prompt from S3 or use cached version."""
+    """Fetch prompt from S3 or use local fallback, with warm-cache."""
     if PROMPT_CACHE[prompt_type] is not None:
         return PROMPT_CACHE[prompt_type]
-        
+
     s3 = boto3.client("s3")
-    bucket = "cloudweaver-prompts-private"
-    key = f"prompts/{prompt_type}.txt"
-    
+    bucket = os.getenv(PROMPT_BUCKET_ENV, "cloudweaver-prompts-private")
+    prefix = os.getenv(PROMPT_PREFIX_ENV, "prompts/")
+    normalized_prefix = prefix if prefix.endswith("/") else f"{prefix}/"
+    key = f"{normalized_prefix}{prompt_type}.txt"
+
     try:
         response = s3.get_object(Bucket=bucket, Key=key)
         prompt = response['Body'].read().decode('utf-8')
         PROMPT_CACHE[prompt_type] = prompt
         return prompt
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "")
+        if error_code in {"NoSuchKey", "NoSuchBucket", "AccessDenied"}:
+            print(
+                f"S3 prompt fetch failed for s3://{bucket}/{key} ({error_code}); "
+                "falling back to bundled local prompt file."
+            )
+            prompt = _read_local_prompt(prompt_type)
+            PROMPT_CACHE[prompt_type] = prompt
+            return prompt
+        raise
     except Exception as e:
-        print(f"Error fetching {key} from S3: {e}")
-        # Return empty string or raise, handled by Lambda logs
-        raise e
+        print(f"Unexpected prompt fetch failure for s3://{bucket}/{key}: {e}")
+        prompt = _read_local_prompt(prompt_type)
+        PROMPT_CACHE[prompt_type] = prompt
+        return prompt
 
 SERVICE_MATCHERS = {
     "Amazon Bedrock": ["bedrock"],
