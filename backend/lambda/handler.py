@@ -428,15 +428,26 @@ def deploy_cloudformation_stack(cfn_client, stack_name: str, template_body: str)
                 "status": existing_status,
             }
 
-        raise RuntimeError(
-            f"Stack {stack_name} is in status {existing_status}. Resolve stack state before retrying deployment."
-        )
+        if existing_status in {"ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "CREATE_FAILED"}:
+            # Recover from failed stack states so retried deployments can proceed automatically.
+            cfn_client.delete_stack(StackName=stack_name)
+            cfn_client.get_waiter("stack_delete_complete").wait(
+                StackName=stack_name,
+                WaiterConfig={"Delay": 5, "MaxAttempts": 120},
+            )
+            existing_stack = None
+
+        if existing_stack:
+            raise RuntimeError(
+                f"Stack {stack_name} is in status {existing_status}. Resolve stack state before retrying deployment."
+            )
 
     if not existing_stack:
         create_response = cfn_client.create_stack(
             StackName=stack_name,
             TemplateBody=template_body,
             Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
+            OnFailure="DELETE",
         )
         stack_id = create_response.get("StackId")
         cfn_client.get_waiter("stack_create_complete").wait(
