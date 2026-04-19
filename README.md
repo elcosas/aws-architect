@@ -4,6 +4,9 @@ Cloud Weaver is an AI-powered AWS architecture assistant that turns a user's
 plain-English project idea into an AWS architecture diagram, validates it, and
 prepares the output for deployment-oriented workflows.
 
+Cloudfront URL (Frontend): https://d2k45vy1qt3ioe.cloudfront.net/
+API Gateway (Backend): wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev/
+
 ## How it works
 
 1. A user types a project idea into the frontend chat UI.
