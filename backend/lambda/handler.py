@@ -107,7 +107,17 @@ def build_assistant_message_for_storage(result: dict) -> Tuple[str, Optional[str
 
     mermaid_code = result.get("mermaid_code")
     if mermaid_code:
-        return f"```mermaid\n{mermaid_code}\n```", mermaid_code, None
+        message_parts = [f"```mermaid\n{mermaid_code}\n```"]
+
+        architecture_reasoning = (result.get("architecture_reasoning") or "").strip()
+        if architecture_reasoning:
+            message_parts.append(f"Architecture reasoning: {architecture_reasoning}")
+
+        feedback = (result.get("feedback") or "").strip()
+        if feedback:
+            message_parts.append(feedback)
+
+        return "\n\n".join(message_parts), mermaid_code, None
 
     cloudformation_yaml = result.get("cloudformation_yaml")
     if cloudformation_yaml:
