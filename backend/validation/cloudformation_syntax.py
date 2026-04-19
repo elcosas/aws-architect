@@ -32,11 +32,23 @@ class _CloudFormationLoader(yaml.SafeLoader):
 
     CloudFormation templates commonly use custom tags like ``!Ref`` and ``!Sub``
     that a strict YAML loader does not recognize by default.
+
+    This class intentionally has no custom attributes or methods. It acts as a
+    dedicated loader type so we can attach CloudFormation-specific tag handling
+    (via ``add_multi_constructor``) without mutating ``yaml.SafeLoader``
+    globally for other YAML parsing code.
     """
+
+    pass
 
 
 def _construct_unknown_tag(loader: _CloudFormationLoader, _: str, node: yaml.Node):
-    """Gracefully parse unknown YAML tags as native Python values."""
+    """Gracefully parse unknown CloudFormation-style YAML tags.
+
+    For tags like ``!Ref`` or ``!Sub``, this constructor falls back to building
+    a normal Python scalar, sequence, or mapping so syntax validation can still
+    run even when custom tags are present.
+    """
 
     if isinstance(node, yaml.ScalarNode):
         return loader.construct_scalar(node)
@@ -66,6 +78,7 @@ def validate_cloudformation_syntax(template_text: str) -> ValidationResult:
     errors: list[ValidationIssue] = []
     warnings: list[ValidationIssue] = []
 
+    # 1) Guardrail: template text must exist.
     if not template_text or not template_text.strip():
         errors.append(
             {
@@ -75,6 +88,7 @@ def validate_cloudformation_syntax(template_text: str) -> ValidationResult:
         )
         return {"passed": False, "errors": errors, "warnings": warnings}
 
+    # 2) Parse YAML using the CloudFormation-aware loader.
     try:
         parsed = yaml.load(template_text, Loader=_CloudFormationLoader)
     except yaml.YAMLError as exc:
@@ -86,6 +100,7 @@ def validate_cloudformation_syntax(template_text: str) -> ValidationResult:
         )
         return {"passed": False, "errors": errors, "warnings": warnings}
 
+    # 3) Root must be a mapping/object for valid CloudFormation templates.
     if not isinstance(parsed, dict):
         errors.append(
             {
@@ -95,8 +110,9 @@ def validate_cloudformation_syntax(template_text: str) -> ValidationResult:
         )
         return {"passed": False, "errors": errors, "warnings": warnings}
 
-    resources = parsed.get("Resources")
-    if not isinstance(resources, dict) or not resources:
+    # 4) Resources section is required and must be a non-empty mapping.
+    resources_section = parsed.get("Resources")
+    if not isinstance(resources_section, dict) or not resources_section:
         errors.append(
             {
                 "rule": "resources_required",
@@ -104,7 +120,8 @@ def validate_cloudformation_syntax(template_text: str) -> ValidationResult:
             }
         )
     else:
-        for logical_id, resource in resources.items():
+        # 5) Each declared resource must be an object and include a valid Type.
+        for logical_id, resource in resources_section.items():
             if not isinstance(resource, dict):
                 errors.append(
                     {
@@ -123,6 +140,7 @@ def validate_cloudformation_syntax(template_text: str) -> ValidationResult:
                     }
                 )
 
+    # 6) Final pass/fail is based on whether blocking errors were found.
     return {
         "passed": len(errors) == 0,
         "errors": errors,
