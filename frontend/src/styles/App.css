@@ -1048,6 +1048,30 @@
   font-weight: 500;
 }
 
+.app-meta-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid rgba(170, 59, 255, 0.2);
+  background: rgba(19, 19, 20, 0.96);
+  color: #879596;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+}
+
+.app-meta-footer a {
+  color: #ffb84d;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.app-meta-footer a:hover {
+  color: #ffd08a;
+  text-decoration: underline;
+}
+
 @media (max-width: 640px) {
   .chat-header {
     align-items: flex-start;

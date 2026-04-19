@@ -706,6 +706,14 @@ function App() {
         </div>
       </footer>
 
+      <div className="app-meta-footer" aria-label="Application footer">
+        <span>© 2026 Cloud Weaver</span>
+        <span aria-hidden="true">•</span>
+        <a href="https://github.com/elcosas/aws-architect" target="_blank" rel="noreferrer">
+          About
+        </a>
+      </div>
+
       {serviceInfoModal}
 
       {isDeployModalOpen && (
