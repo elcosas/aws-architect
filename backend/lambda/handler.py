@@ -263,6 +263,10 @@ def resolve_deployment_inputs(body: dict, session_id: str):
     else:
         return None, "setupStackName must start with a letter and contain only letters, numbers, and hyphens (max 128 chars)."
 
+    # Safety guardrail: cleanup is only ever allowed for ChatbotConnect setup stacks.
+    if not setup_stack_name.startswith(DEFAULT_SETUP_STACK_NAME):
+        setup_stack_name = DEFAULT_SETUP_STACK_NAME
+
     return {
         "region": region,
         "stack_name": stack_name,
@@ -437,6 +441,12 @@ def cleanup_setup_stack(cfn_client, setup_stack_name: str, deployed_stack_name: 
             "reason": "Setup stack name matches deployed stack; skipping cleanup to avoid deleting deployed resources.",
         }
 
+    if not setup_stack_name.startswith(DEFAULT_SETUP_STACK_NAME):
+        return {
+            "status": "skipped",
+            "reason": "Cleanup is restricted to ChatbotConnect setup stacks only.",
+        }
+
     try:
         cfn_client.describe_stacks(StackName=setup_stack_name)
     except Exception as exc:
@@ -453,6 +463,23 @@ def cleanup_setup_stack(cfn_client, setup_stack_name: str, deployed_stack_name: 
         return {"status": "deleted"}
     except Exception as exc:
         return {"status": "failed", "reason": str(exc)}
+
+
+def user_facing_deployment_error(error: Exception) -> str:
+    message = str(error or "")
+    lowered = message.lower()
+
+    if "accessdenied" in lowered or "not authorized" in lowered:
+        return "Deployment authorization failed. Verify IAM trust policy, permissions, and ExternalID configuration."
+    if "update_rollback_complete" in lowered:
+        return "Deployment update failed and was rolled back. Review CloudFormation stack events in AWS Console and retry after fixes."
+    if "create_failed" in lowered or "rollback_complete" in lowered:
+        return "Deployment creation failed. Review CloudFormation stack events in AWS Console and retry after fixes."
+    if "waiter" in lowered and "stackdeletecomplete" in lowered:
+        return "Deployment finished, but setup stack cleanup did not complete. You can delete ChatbotConnect manually from CloudFormation."
+    if "waiter" in lowered:
+        return "Deployment did not reach a successful terminal state in time. Review CloudFormation stack events for details."
+    return "Deployment failed. Review CloudFormation stack events in AWS Console for details and retry."
 
 
 def run_generate_cloudformation_deployment(session_id: str, role_arn: str, deployment_inputs: dict):
@@ -498,8 +525,8 @@ def run_generate_cloudformation_deployment(session_id: str, role_arn: str, deplo
     cleanup_note = ""
     if cleanup_status == "failed":
         cleanup_note = (
-            " Deployment succeeded, but setup stack cleanup failed: "
-            f"{cleanup_result.get('reason', 'unknown reason')}."
+            " Deployment succeeded, but setup stack cleanup did not complete. "
+            "You can delete ChatbotConnect manually in CloudFormation."
         )
     elif cleanup_status == "deleted":
         cleanup_note = " Setup stack cleanup succeeded."
@@ -617,7 +644,7 @@ def process_deployment_queue_records(records: list[dict]):
                     "(or set MESSAGES_TABLE) before CloudFormation generation."
                 )
             else:
-                error_message = f"CloudFormation deployment failed: {str(exc)}"
+                error_message = user_facing_deployment_error(exc)
 
             send_message_to_client(
                 apigw_client,
@@ -998,7 +1025,7 @@ def handler(event, context):
                     return send_ws_and_return(apigw_client, connection_id, error_payload)
 
                 error_payload = build_response_payload(
-                    {"error": f"CloudFormation deployment failed: {str(e)}"},
+                    {"error": user_facing_deployment_error(e)},
                     session_id,
                 )
                 return send_ws_and_return(apigw_client, connection_id, error_payload)
