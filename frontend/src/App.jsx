@@ -234,6 +234,7 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isDeploying, setIsDeploying] = useState(false);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [ws, setWs] = useState(null);
   const [isTestMode, setIsTestMode] = useState(DEFAULT_TEST_MODE);
@@ -509,9 +510,20 @@ function App() {
     
     socket.onmessage = (event) => {
       clearResponseTimeout();
-      setIsLoading(false);
       try {
         const data = JSON.parse(event.data);
+
+        const isDeployAck = data.jobQueued === true;
+        const isDeployTerminal = Boolean(data.stackName || data.deploymentOperation || data.cleanup);
+        const isDeployError = typeof data.error === 'string' && /deployment|cloudformation/i.test(data.error);
+
+        if (!isDeployAck) {
+          setIsLoading(false);
+        }
+
+        if (isDeployTerminal || isDeployError) {
+          setIsDeploying(false);
+        }
         const responseLatency = consumeResponseLatencyLabel();
 
         if (typeof data.sessionID === 'string' && data.sessionID.trim()) {
@@ -547,7 +559,6 @@ function App() {
       console.error(`❌ WebSocket Error while connecting to ${WS_URL}:`, error);
       clearResponseTimeout();
       setIsLoading(false);
-      responseStartedAtRef.current = null
     };
 
     socket.onclose = (event) => {
@@ -556,7 +567,6 @@ function App() {
       );
       clearResponseTimeout();
       setIsLoading(false); 
-      responseStartedAtRef.current = null
     };
 
     setWs(socket);
@@ -840,7 +850,7 @@ function App() {
   };
 
   const handleGenerateCloudFormationWithArn = () => {
-    if (isLoading) {
+    if (isLoading || isDeploying) {
       return;
     }
 
@@ -883,7 +893,6 @@ function App() {
 
     setIsDeployModalOpen(false);
     setIsLoading(true);
-    markResponseStart();
     setMessages(prev => [...prev, {
       role: 'user',
       content: `Generate CloudFormation using Role ARN: ${normalizedRoleArn} (region: ${DEFAULT_DEPLOY_REGION}, stack: ${targetStackName})`,
@@ -1261,7 +1270,7 @@ function App() {
         setRoleArn={setRoleArn}
         hasValidRoleArn={hasValidRoleArn}
         isFetchingExternalId={isFetchingExternalId}
-        isDeploying={isLoading}
+        isDeploying={isDeploying}
         onConnectAwsAccount={handleConnectAwsAccount}
         onDeployServices={handleGenerateCloudFormationWithArn}
       />

@@ -313,6 +313,24 @@ def get_existing_stack(cfn_client, stack_name: str):
         raise
 
 
+def get_stack_failure_reason(cfn_client, stack_reference: str) -> str:
+    try:
+        events = cfn_client.describe_stack_events(StackName=stack_reference).get("StackEvents", [])
+    except Exception:
+        return "No CloudFormation event details were available."
+
+    for event in events:
+        status = event.get("ResourceStatus", "")
+        if not isinstance(status, str):
+            continue
+        if status.endswith("_FAILED"):
+            resource = event.get("LogicalResourceId") or "unknown resource"
+            reason = event.get("ResourceStatusReason") or "no reason provided"
+            return f"{resource}: {reason}"
+
+    return "No explicit failed resource reason was returned by CloudFormation."
+
+
 def _stringify_validation_issues(issues: list[dict]) -> str:
     if not issues:
         return ""
@@ -465,7 +483,7 @@ def deploy_cloudformation_stack(cfn_client, stack_name: str, template_body: str)
                 StackName=stack_name,
                 TemplateBody=template_body,
                 Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
-                OnFailure="DELETE",
+                OnFailure="DO_NOTHING",
             )
             stack_id = create_response.get("StackId")
         except ClientError as exc:
@@ -504,12 +522,18 @@ def deploy_cloudformation_stack(cfn_client, stack_name: str, template_body: str)
 
             if not latest_stack:
                 raise RuntimeError(
-                    "Deployment stack was not created. CloudFormation may have auto-deleted it after create failure."
+                    "Deployment stack was not created or is not yet queryable. "
+                    "Check CloudFormation stack events and retry."
                 )
 
             if latest_status in {"ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "CREATE_FAILED"}:
+                failure_reason = get_stack_failure_reason(
+                    cfn_client,
+                    (latest_stack or {}).get("StackId") or stack_name,
+                )
                 raise RuntimeError(
-                    "Deployment creation failed. Review CloudFormation stack events in AWS Console and retry after fixes."
+                    "Deployment creation failed. "
+                    f"CloudFormation reason: {failure_reason}"
                 )
 
             if isinstance(latest_status, str) and latest_status.endswith("_IN_PROGRESS"):
@@ -579,6 +603,12 @@ def user_facing_deployment_error(error: Exception) -> str:
         return "A previous failed deployment stack needs manual cleanup. Delete the stack in CloudFormation, then retry."
     if "deployment stack was not created" in lowered:
         return "Deployment did not create a stack. Review CloudFormation stack events and retry."
+    if "cloudformation reason:" in lowered:
+        reason = message.split("CloudFormation reason:", 1)[-1].strip()
+        return (
+            "Deployment creation failed. "
+            f"CloudFormation reported: {reason}"
+        )
     if "deployment is still in progress" in lowered:
         return "Deployment is still in progress. Check CloudFormation stack events and wait for completion."
     if "update_rollback_complete" in lowered:
