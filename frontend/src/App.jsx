@@ -6,6 +6,44 @@ import './styles/App.css'
 const DEFAULT_TEST_MODE = import.meta.env.VITE_TEST_MODE !== 'false'
 const WS_URL =
   import.meta.env.VITE_WS_URL || 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev'
+const SESSION_STORAGE_KEY = 'aws-architect.sessionID'
+
+const getStoredSessionId = () => {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  try {
+    return window.localStorage.getItem(SESSION_STORAGE_KEY)
+  } catch (error) {
+    console.warn('Unable to read sessionID from localStorage:', error)
+    return null
+  }
+}
+
+const storeSessionId = (sessionId) => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    if (sessionId) {
+      window.localStorage.setItem(SESSION_STORAGE_KEY, sessionId)
+    } else {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY)
+    }
+  } catch (error) {
+    console.warn('Unable to write sessionID to localStorage:', error)
+  }
+}
+
+const generateLocalSessionId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+
+  return `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 
 const getCurrentTime = () => {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -57,6 +95,7 @@ function App() {
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [ws, setWs] = useState(null);
   const [isTestMode, setIsTestMode] = useState(DEFAULT_TEST_MODE);
+  const [sessionID, setSessionID] = useState(() => getStoredSessionId());
   
   // Modal States
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
@@ -127,6 +166,18 @@ function App() {
       setIsLoading(false);
       try {
         const data = JSON.parse(event.data);
+
+        if (typeof data.sessionID === 'string' && data.sessionID.trim()) {
+          const returnedSessionID = data.sessionID.trim();
+          setSessionID((prev) => {
+            if (prev !== returnedSessionID) {
+              storeSessionId(returnedSessionID);
+            }
+
+            return returnedSessionID;
+          });
+        }
+
         if (data.mermaid_code) {
           const feedbackSection = data.feedback
             ? `\n\n---\n\n${data.feedback}`
@@ -225,6 +276,12 @@ function App() {
     if (isTestMode) {
       // 🧪 Fake the backend response
       setTimeout(() => {
+        const mockSessionID = sessionID || generateLocalSessionId();
+        if (!sessionID) {
+          setSessionID(mockSessionID);
+          storeSessionId(mockSessionID);
+        }
+
         setIsLoading(false);
         setMessages(prev => [...prev, { 
           role: 'assistant', 
@@ -243,7 +300,12 @@ function App() {
         }]);
         return;
       }
-      ws.send(JSON.stringify({ action: "sendMessage", userInput: userMessage, services: selectedServices }));
+      ws.send(JSON.stringify({
+        action: "sendMessage",
+        sessionID: sessionID || null,
+        userInput: userMessage,
+        services: selectedServices
+      }));
       startResponseTimeout();
     }
   };
@@ -286,9 +348,25 @@ function App() {
     }]);
     setIsLoading(true);
 
+    if (!isTestMode && !sessionID) {
+      setIsLoading(false);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: '**Session Error:** Please send at least one chat message first so a session can be created.',
+        timestamp: getCurrentTime()
+      }]);
+      return;
+    }
+
     if (isTestMode) {
       // 🧪 Fake the deployment response
       setTimeout(() => {
+        const mockSessionID = sessionID || generateLocalSessionId();
+        if (!sessionID) {
+          setSessionID(mockSessionID);
+          storeSessionId(mockSessionID);
+        }
+
         setIsLoading(false);
         setMessages(prev => [...prev, { 
           role: 'assistant', 
@@ -309,7 +387,8 @@ function App() {
       }
       ws.send(JSON.stringify({ 
         action: "generateCloudFormation", 
-        userInput: "approved architecture",
+        sessionID: sessionID || null,
+        userInput: "Generate CloudFormation for the latest approved architecture.",
         approvedDiagram: "",
         services: selectedServices,
         credentials: awsCredentials
