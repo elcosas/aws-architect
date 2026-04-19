@@ -94,6 +94,7 @@ python3 test_local.py
 - `lambda/` *(planned / branch-specific, if present)*
   - `handler.py`
   - `bedrock_client.py`
+  - `session_store.py`
   - `test_local.py`
 
 ## Current status

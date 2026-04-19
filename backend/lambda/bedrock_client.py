@@ -1,6 +1,4 @@
 import boto3
-import json
-import os
 
 bedrock = boto3.client(
     "bedrock-runtime",
@@ -56,19 +54,29 @@ CFN_TOOL_DEFINITIONS = [
 # Uses the Converse API to query the Claude model, forcing
 # it to return a structured JSON tool call with Mermaid JS.
 # ---------------------------------------------------------
-def invoke_bedrock(system_prompt: str, user_message: str, tool_type: str = "mermaid") -> dict:
+def invoke_bedrock(
+    system_prompt: str,
+    user_message: str,
+    tool_type: str = "mermaid",
+    conversation_history: list | None = None,
+) -> dict:
     try:
         # Select the correct tool schema based on the requested type
         tools = CFN_TOOL_DEFINITIONS if tool_type == "cloudformation" else TOOL_DEFINITIONS
+
+        messages = list(conversation_history or [])
+        messages.append(
+            {
+                "role": "user",
+                "content": [{"text": user_message}],
+            }
+        )
 
         # Call the Bedrock Converse API with the Claude model
         response = bedrock.converse(
             modelId=MODEL_ID,
             system=[{"text": system_prompt}],
-            messages=[{
-                "role": "user",
-                "content": [{"text": user_message}]
-            }],
+            messages=messages,
             toolConfig={"tools": tools}
         )
 
