@@ -15,6 +15,7 @@ function App() {
   
   // Modal States
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+  const [credentialError, setCredentialError] = useState(''); // NEW: Error state
   const [awsCredentials, setAwsCredentials] = useState({
     accessKeyId: '',
     secretAccessKey: ''
@@ -45,7 +46,6 @@ function App() {
     setIsUserScrolledUp(false); 
   };
 
-  // 1. FAKED SEND MESSAGE FLOW
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (!inputValue.trim()) return;
@@ -55,7 +55,6 @@ function App() {
     setInputValue('');
     setIsLoading(true);
     
-    // FAKE THE BACKEND DELAY
     setTimeout(() => {
       setIsLoading(false);
       setMessages(prev => [...prev, { 
@@ -66,10 +65,27 @@ function App() {
     }, 1500);
   };
 
-  // 2. FAKED DEPLOY FLOW FROM POPUP
+  // 2. DEPLOY FLOW WITH VALIDATION
   const handleFinalDeploy = (e) => {
     e.preventDefault();
-    setIsDeployModalOpen(false); // Close the popup
+    
+    // --- NEW: REGEX VALIDATION ---
+    const accessKeyRegex = /^(AKIA|ASIA)[A-Z0-9]{16}$/;
+    const secretKeyRegex = /^[A-Za-z0-9/+=]{40}$/;
+
+    if (!accessKeyRegex.test(awsCredentials.accessKeyId)) {
+      setCredentialError('Invalid Access Key ID. Must be 20 characters and start with AKIA or ASIA.');
+      return; // Stop the deployment
+    }
+
+    if (!secretKeyRegex.test(awsCredentials.secretAccessKey)) {
+      setCredentialError('Invalid Secret Access Key. Must be exactly 40 characters long.');
+      return; // Stop the deployment
+    }
+
+    // If it passes validation, clear errors and proceed!
+    setCredentialError('');
+    setIsDeployModalOpen(false); 
     
     setMessages(prev => [...prev, { 
       role: 'user', 
@@ -78,7 +94,6 @@ function App() {
     }]);
     setIsLoading(true);
 
-    // FAKE THE FINAL BACKEND DEPLOYMENT RESPONSE
     setTimeout(() => {
       setIsLoading(false);
       setMessages(prev => [...prev, { 
@@ -89,6 +104,11 @@ function App() {
     }, 2000);
 
     setAwsCredentials({ accessKeyId: '', secretAccessKey: '' });
+  };
+
+  const handleCloseModal = () => {
+    setIsDeployModalOpen(false);
+    setCredentialError(''); // Clear errors if they cancel
   };
 
   const handleServiceClick = (service) => setInputValue(`Help me configure ${service}`);
@@ -112,7 +132,6 @@ function App() {
                   }
                 }}>{msg.content}</ReactMarkdown>
                 
-                {/* Opens the Popup instead of sending immediately */}
                 {index === messages.length - 1 && msg.role === 'assistant' && msg.content.includes('```mermaid') && (
                   <div style={{ marginTop: '12px', textAlign: 'right' }}>
                     <button 
@@ -162,6 +181,13 @@ function App() {
             <h3>Deploy Architecture</h3>
             <p>Please provide your AWS credentials so we can assume the role and deploy the CloudFormation template.</p>
             
+            {/* NEW: Error Message Display */}
+            {credentialError && (
+              <div className="credential-error">
+                {credentialError}
+              </div>
+            )}
+            
             <form onSubmit={handleFinalDeploy}>
               <div className="form-group">
                 <label>AWS Access Key ID</label>
@@ -170,7 +196,10 @@ function App() {
                   className="modal-input" 
                   required
                   value={awsCredentials.accessKeyId}
-                  onChange={(e) => setAwsCredentials({...awsCredentials, accessKeyId: e.target.value})}
+                  onChange={(e) => {
+                    setAwsCredentials({...awsCredentials, accessKeyId: e.target.value});
+                    setCredentialError(''); // Clear error when typing
+                  }}
                   placeholder="AKIAIOSFODNN7EXAMPLE" 
                 />
               </div>
@@ -181,13 +210,16 @@ function App() {
                   className="modal-input" 
                   required
                   value={awsCredentials.secretAccessKey}
-                  onChange={(e) => setAwsCredentials({...awsCredentials, secretAccessKey: e.target.value})}
+                  onChange={(e) => {
+                    setAwsCredentials({...awsCredentials, secretAccessKey: e.target.value});
+                    setCredentialError(''); // Clear error when typing
+                  }}
                   placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" 
                 />
               </div>
               
               <div className="modal-actions">
-                <button type="button" className="btn-cancel" onClick={() => setIsDeployModalOpen(false)}>Cancel</button>
+                <button type="button" className="btn-cancel" onClick={handleCloseModal}>Cancel</button>
                 <button type="submit" className="btn-confirm">Deploy to AWS</button>
               </div>
             </form>
