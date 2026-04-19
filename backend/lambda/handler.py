@@ -161,6 +161,11 @@ def normalize_selected_services(services):
     return [service for service in services if isinstance(service, str) and service in ALLOWED_SERVICE_SET]
 
 
+def is_missing_dynamodb_resource_error(error: Exception) -> bool:
+    message = str(error)
+    return "ResourceNotFoundException" in message and "Requested resource not found" in message
+
+
 def extract_used_services_from_mermaid(mermaid_code):
     used = set()
     source = (mermaid_code or "").lower()
@@ -223,11 +228,28 @@ def handler(event, context):
                 session_id = generate_session_id()
 
             try:
-                ensure_session(session_id)
-                chat_history = get_recent_chat_messages(session_id)
+                chat_history = []
+                persistence_available = True
 
-                user_message_for_storage = build_user_message_for_storage(user_input, feedback, selected_services)
-                save_message(session_id, "user", user_message_for_storage)
+                try:
+                    ensure_session(session_id)
+                    chat_history = get_recent_chat_messages(session_id)
+
+                    user_message_for_storage = build_user_message_for_storage(
+                        user_input,
+                        feedback,
+                        selected_services,
+                    )
+                    save_message(session_id, "user", user_message_for_storage)
+                except Exception as persistence_error:
+                    if is_missing_dynamodb_resource_error(persistence_error):
+                        persistence_available = False
+                        print(
+                            "Session persistence unavailable (missing DynamoDB table). "
+                            "Continuing in stateless mode for this request."
+                        )
+                    else:
+                        raise
 
                 prompt = build_prompt(user_input, feedback, selected_services)
                 result = invoke_bedrock(SYSTEM_PROMPT, prompt, conversation_history=chat_history)
@@ -247,14 +269,15 @@ def handler(event, context):
                     else:
                         result["feedback"] = build_architecture_feedback(result, selected_services, used_services)
 
-                assistant_content, mermaid_code, cloudformation_yaml = build_assistant_message_for_storage(result)
-                save_message(
-                    session_id,
-                    "assistant",
-                    assistant_content,
-                    mermaid_code=mermaid_code,
-                    cloudformation_yaml=cloudformation_yaml,
-                )
+                if persistence_available:
+                    assistant_content, mermaid_code, cloudformation_yaml = build_assistant_message_for_storage(result)
+                    save_message(
+                        session_id,
+                        "assistant",
+                        assistant_content,
+                        mermaid_code=mermaid_code,
+                        cloudformation_yaml=cloudformation_yaml,
+                    )
 
                 payload = build_response_payload(result, session_id)
                 return send_ws_and_return(apigw_client, connection_id, payload)
@@ -310,6 +333,19 @@ def handler(event, context):
                 payload = build_response_payload(result, session_id)
                 return send_ws_and_return(apigw_client, connection_id, payload)
             except Exception as e:
+                if is_missing_dynamodb_resource_error(e):
+                    error_payload = build_response_payload(
+                        {
+                            "error": (
+                                "Session storage is not configured in DynamoDB. "
+                                "Create the sessions/messages tables (or set SESSIONS_TABLE and "
+                                "MESSAGES_TABLE) before CloudFormation generation."
+                            )
+                        },
+                        session_id,
+                    )
+                    return send_ws_and_return(apigw_client, connection_id, error_payload)
+
                 error_payload = build_response_payload(
                     {"error": f"Failed to generate CloudFormation: {str(e)}"},
                     session_id,
