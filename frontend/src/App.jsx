@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import MermaidChart from './MermaidChart'
 import './styles/App.css'
@@ -59,6 +60,65 @@ const SERVICE_MATCHERS = {
   'CloudFormation': /\bcloudformation\b|\bcfn\b/i,
   'DynamoDB': /\bdynamodb\b|\bddb\b/i,
   'AWS IAM': /\biam\b|identity\s+and\s+access\s+management|identity\s+center|sts/i,
+};
+
+const SERVICE_INFO = {
+  'Amazon Bedrock': {
+    generalUse: 'Amazon Bedrock helps you add production-grade generative AI to your application without managing GPU servers or model hosting pipelines. You can use it for chat assistants, architecture generation, summarization, classification, and content drafting while keeping your app in AWS-native workflows. For teams building quickly, Bedrock reduces operational complexity so you can focus on product logic, prompt quality, and user experience instead of infrastructure engineering.',
+    pros: ['No model servers to manage', 'Multiple model choices in one place', 'Fast path from prototype to production', 'Strong AWS security and IAM integration', 'Useful for chat, generation, and summarization'],
+    cons: ['Costs can rise with heavy token usage', 'Prompt design quality affects output quality', 'Model latency can vary by workload', 'Need guardrails for sensitive outputs', 'Regional/model availability may differ'],
+    commonlyUsedWith: ['AWS Lambda', 'API Gateway', 'DynamoDB', 'Amazon S3', 'AWS IAM'],
+    docsUrl: 'https://docs.aws.amazon.com/bedrock/',
+  },
+  'AWS Lambda': {
+    generalUse: 'AWS Lambda is a serverless compute service that runs your code on demand in response to API calls, events, or scheduled triggers. It is ideal for backend endpoints, integration glue, automation jobs, and event-driven pipelines where you want fast iteration and minimal operations work. In this project, Lambda is the core backend brain that receives WebSocket messages, orchestrates Bedrock calls, validates output, and manages session-aware chat behavior.',
+    pros: ['No servers to patch or maintain', 'Automatic scaling for burst traffic', 'Pay only when code runs', 'Great fit with API Gateway and events', 'Speeds up backend delivery for small teams'],
+    cons: ['Cold starts can affect response time', 'Runtime and timeout limits apply', 'Large dependencies can be tricky', 'State is ephemeral between invocations', 'Observability can be harder across many functions'],
+    commonlyUsedWith: ['API Gateway', 'DynamoDB', 'Amazon S3', 'CloudFormation', 'AWS IAM'],
+    docsUrl: 'https://docs.aws.amazon.com/lambda/',
+  },
+  'Amazon S3': {
+    generalUse: 'Amazon S3 is object storage used for static web assets, media files, artifacts, logs, backups, and generated outputs. It is highly durable, easy to scale, and works extremely well with CloudFront to deliver frontend content globally with low latency. For modern apps, S3 often becomes the central storage layer for immutable files and deployment artifacts, while lifecycle policies help keep long-term storage costs predictable.',
+    pros: ['Extremely durable object storage', 'Scales to massive file counts', 'Multiple storage classes for cost control', 'Excellent with CloudFront and static hosting', 'Simple event integration with other AWS services'],
+    cons: ['Not meant for relational queries', 'Permissions can be risky if misconfigured', 'Request and transfer pricing needs monitoring', 'Object key design impacts organization', 'Versioning/lifecycle policies require planning'],
+    commonlyUsedWith: ['CloudFront', 'AWS Lambda', 'CloudFormation', 'AWS IAM', 'API Gateway'],
+    docsUrl: 'https://docs.aws.amazon.com/s3/',
+  },
+  'API Gateway': {
+    generalUse: 'API Gateway is the managed entry point for REST and WebSocket APIs, handling request routing, throttling, authentication integration, and protocol management. It lets your backend services stay focused on business logic while API Gateway manages transport concerns and exposure to clients. In this application, WebSocket API routes provide the real-time chat channel between the browser and Lambda for prompt/response architecture workflows.',
+    pros: ['Managed auth, throttling, and routing', 'Works naturally with Lambda backends', 'Supports realtime with WebSocket APIs', 'Helps standardize API operations', 'Built-in usage plans and monitoring hooks'],
+    cons: ['Pricing can grow with high throughput', 'Advanced config can be complex', 'Extra hop can add latency', 'Debugging route/integration issues can take time', 'WebSocket route setup requires careful testing'],
+    commonlyUsedWith: ['AWS Lambda', 'DynamoDB', 'CloudFront', 'AWS IAM', 'Amazon Bedrock'],
+    docsUrl: 'https://docs.aws.amazon.com/apigateway/',
+  },
+  'CloudFront': {
+    generalUse: 'CloudFront is a global content delivery network that caches frontend assets at edge locations near users to improve speed and responsiveness. It reduces round-trip latency, lowers load on origin services, and improves perceived app performance worldwide. For web applications, CloudFront is commonly used in front of S3-hosted frontend bundles and can also provide security controls and consistent TLS delivery behavior.',
+    pros: ['Faster global content delivery', 'Reduces traffic hitting your origins', 'Strong security integrations (TLS/WAF)', 'Great for static frontend performance', 'Can reduce total backend bandwidth costs'],
+    cons: ['Cache behavior can be tricky to tune', 'Invalidations may add operational overhead', 'Misconfigured cache rules can cause stale content', 'Another layer to troubleshoot', 'Pricing depends on traffic regions and volume'],
+    commonlyUsedWith: ['Amazon S3', 'API Gateway', 'AWS IAM', 'CloudFormation', 'AWS Lambda'],
+    docsUrl: 'https://docs.aws.amazon.com/cloudfront/',
+  },
+  'CloudFormation': {
+    generalUse: 'CloudFormation is AWS infrastructure as code, allowing you to declare resources in templates and deploy them consistently across environments. It is useful for repeatable architecture provisioning, team collaboration through version control, and safer change management over time. In this project flow, generated CloudFormation output represents a deployment-ready path from approved architecture diagrams to infrastructure implementation.',
+    pros: ['Repeatable and consistent deployments', 'Infrastructure changes are version-controlled', 'Native support for many AWS services', 'Reduces manual setup mistakes', 'Works well for team-based environments'],
+    cons: ['Large templates become hard to manage', 'Troubleshooting failed stacks can be slow', 'Some updates take significant time', 'Template drift can happen outside IaC', 'Learning curve for complex stack design'],
+    commonlyUsedWith: ['AWS Lambda', 'Amazon S3', 'API Gateway', 'DynamoDB', 'CloudFront'],
+    docsUrl: 'https://docs.aws.amazon.com/cloudformation/',
+  },
+  'DynamoDB': {
+    generalUse: 'DynamoDB is a low-latency NoSQL database designed for high-scale key-value and document workloads where predictable performance matters. It is commonly used for sessions, chat memory, state storage, event records, and app metadata that needs quick reads/writes. In this app, DynamoDB powers session persistence so the assistant can keep multi-turn context instead of treating each user message as an isolated request.',
+    pros: ['Low-latency reads and writes', 'Fully managed with high availability', 'Scales well for heavy traffic apps', 'TTL support for auto-expiring data', 'Strong fit for session and event data'],
+    cons: ['Data modeling differs from SQL thinking', 'Bad partition keys can cause hotspots', 'Complex query patterns need pre-planning', 'Costs can grow without capacity monitoring', 'Joins/relational workflows are limited'],
+    commonlyUsedWith: ['AWS Lambda', 'API Gateway', 'CloudFormation', 'AWS IAM', 'Amazon Bedrock'],
+    docsUrl: 'https://docs.aws.amazon.com/dynamodb/',
+  },
+  'AWS IAM': {
+    generalUse: 'AWS IAM manages identity and authorization across AWS services through users, roles, policies, and trust relationships. It is foundational for least-privilege security, auditability, and safe service-to-service access patterns in production systems. In this project, IAM policies and execution roles ensure Lambda, API integration, DynamoDB access, and deployment workflows can run with only the permissions they actually require.',
+    pros: ['Fine-grained permission control', 'Core to least-privilege security', 'Integrated across nearly all AWS services', 'Supports role-based access patterns', 'Improves auditability and compliance posture'],
+    cons: ['Policies can become complex fast', 'Misconfigurations can block critical paths', 'Overly broad permissions increase risk', 'Requires ongoing governance discipline', 'Cross-account setups can be challenging'],
+    commonlyUsedWith: ['AWS Lambda', 'API Gateway', 'Amazon S3', 'DynamoDB', 'Amazon Bedrock'],
+    docsUrl: 'https://docs.aws.amazon.com/iam/',
+  },
 };
 
 const extractLatestAssistantContent = (messages) => {
@@ -126,6 +186,7 @@ function App() {
   const [credentialError, setCredentialError] = useState(''); 
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [selectedServices, setSelectedServices] = useState([]);
+  const [activeServiceInfo, setActiveServiceInfo] = useState(null);
   const [awsCredentials, setAwsCredentials] = useState({
     accessKeyId: '',
     secretAccessKey: ''
@@ -203,11 +264,13 @@ function App() {
         }
 
         if (data.mermaid_code) {
-          const feedbackSection = data.feedback
-            ? `\n\n---\n\n${data.feedback}`
-            : '';
-          const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\`${feedbackSection}`;
-          setMessages(prev => [...prev, { role: 'assistant', content: botResponse, timestamp: getCurrentTime() }]);
+          const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\``;
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: botResponse,
+            analysis: data.analysis || null,
+            timestamp: getCurrentTime(),
+          }]);
         } else if (data.cloudformation_yaml) {
           const botResponse = `Here is your CloudFormation template:\n\n\`\`\`yaml\n${data.cloudformation_yaml}\n\`\`\``;
           setMessages(prev => [...prev, { role: 'assistant', content: botResponse, timestamp: getCurrentTime() }]);
@@ -448,6 +511,7 @@ function App() {
     setCredentialError('');
     setIsModeMenuOpen(false);
     setIsDeployModalOpen(false);
+    setActiveServiceInfo(null);
     setAwsCredentials({ accessKeyId: '', secretAccessKey: '' });
   };
 
@@ -479,6 +543,67 @@ function App() {
     [],
   )
 
+  const activeServiceDetails = activeServiceInfo ? SERVICE_INFO[activeServiceInfo] : null
+
+  const serviceInfoModal =
+    activeServiceInfo &&
+    activeServiceDetails &&
+    typeof document !== 'undefined'
+      ? createPortal(
+        <div className="service-info-overlay" onClick={() => setActiveServiceInfo(null)}>
+          <div className="service-info-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label={`${activeServiceInfo} details`}>
+            <button
+              type="button"
+              className="service-info-close"
+              aria-label="Close service details"
+              onClick={() => setActiveServiceInfo(null)}
+            >
+              ✕
+            </button>
+
+            <h3>{activeServiceInfo}</h3>
+
+            <p className="service-info-section-title">General use</p>
+            <p>{activeServiceDetails.generalUse}</p>
+
+            <div className="service-pros-cons-grid">
+              <div className="service-pros-cons-column">
+                <p className="service-info-section-title service-info-section-title--pros">Pros</p>
+                <ul>
+                  {activeServiceDetails.pros.map((item) => (
+                    <li key={`${activeServiceInfo}-pro-${item}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="service-pros-cons-column">
+                <p className="service-info-section-title service-info-section-title--cons">Cons</p>
+                <ul>
+                  {activeServiceDetails.cons.map((item) => (
+                    <li key={`${activeServiceInfo}-con-${item}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <p className="service-info-section-title">Commonly used with</p>
+            <p>{activeServiceDetails.commonlyUsedWith.join(', ')}</p>
+
+            <div className="service-info-docs">
+              <a
+                href={activeServiceDetails.docsUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                🔗 Official AWS documentation
+              </a>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )
+      : null
+
   return (
     <div className="chat-container">
       <header className="chat-header">
@@ -494,6 +619,36 @@ function App() {
                 <ReactMarkdown components={markdownComponents}>
                   {msg.content}
                 </ReactMarkdown>
+
+                {msg.analysis && (
+                  <section className="reasoning-panel" aria-label="Architecture reasoning">
+                    <h4>Why this architecture</h4>
+                    <p>{msg.analysis.why_this_architecture}</p>
+
+                    <div className="reasoning-pros-cons-grid">
+                      <div className="reasoning-column reasoning-column--pros">
+                        <h5>Pros</h5>
+                        <ul>
+                          {(msg.analysis.pros || []).map((item, idx) => (
+                            <li key={`pro-${idx}-${item}`}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="reasoning-column reasoning-column--cons">
+                        <h5>Cons</h5>
+                        <ul>
+                          {(msg.analysis.cons || []).map((item, idx) => (
+                            <li key={`con-${idx}-${item}`}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <h4>Improvements</h4>
+                    <p>{msg.analysis.improvements}</p>
+                  </section>
+                )}
 
                 {index === messages.length - 1 && msg.role === 'assistant' && msg.content.includes('```mermaid') && (
                   <div style={{ marginTop: '12px', textAlign: 'right' }}>
@@ -582,21 +737,44 @@ function App() {
               const isUsed = activeServices.has(service)
               const isSelected = selectedServices.includes(service)
               return (
-                <button
-                  type="button"
-                  key={service}
-                  className={`chip-button ${isUsed ? 'chip-button--used' : 'chip-button--unused'} ${isSelected ? 'chip-button--selected' : ''}`}
-                  onClick={() => handleServiceToggle(service)}
-                  aria-pressed={isSelected}
-                >
-                  <span className={`service-status-dot ${isUsed ? 'used' : 'unused'}`} aria-hidden="true" />
-                  <span className="service-name">{service}</span>
-                </button>
+                <div key={service} className="service-chip-row">
+                  <button
+                    type="button"
+                    className={`chip-button ${isUsed ? 'chip-button--used' : 'chip-button--unused'} ${isSelected ? 'chip-button--selected' : ''}`}
+                    onClick={() => handleServiceToggle(service)}
+                    aria-pressed={isSelected}
+                  >
+                    <span className={`service-status-dot ${isUsed ? 'used' : 'unused'}`} aria-hidden="true" />
+                    <span className="service-name">{service}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="service-info-trigger"
+                    aria-label={`Learn about ${service}`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setActiveServiceInfo(service)
+                    }}
+                  >
+                    i
+                  </button>
+                </div>
               )
             })}
           </div>
         </div>
       </footer>
+
+      <div className="app-meta-footer" aria-label="Application footer">
+        <span>© 2026 Cloud Weaver</span>
+        <span aria-hidden="true">•</span>
+        <a href="https://github.com/elcosas/aws-architect" target="_blank" rel="noreferrer">
+          About
+        </a>
+      </div>
+
+      {serviceInfoModal}
 
       {isDeployModalOpen && (
         <div className="modal-overlay">

@@ -10,7 +10,9 @@ from boto3.dynamodb.conditions import Key
 
 DEFAULT_MESSAGES_TABLE = "aws-architect-messages"
 DEFAULT_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
-DEFAULT_CHAT_HISTORY_LIMIT = 20
+DEFAULT_CHAT_HISTORY_LIMIT = 60
+DEFAULT_CHAT_HISTORY_HARD_CAP = 120
+DEFAULT_HISTORY_MESSAGE_MAX_CHARS = 1800
 ASSISTANT_MERMAID_SEPARATOR = "\n\n<<<MERMAID_DIAGRAM>>>\n\n"
 EXTERNAL_ID_METADATA_KEY = "externalID"
 
@@ -29,11 +31,20 @@ def _resolve_messages_table_name() -> str:
 messages_table = dynamodb.Table(_resolve_messages_table_name())
 session_ttl_seconds = int(os.getenv("SESSION_TTL_SECONDS", str(DEFAULT_SESSION_TTL_SECONDS)))
 chat_history_limit = int(os.getenv("CHAT_HISTORY_LIMIT", str(DEFAULT_CHAT_HISTORY_LIMIT)))
+chat_history_hard_cap = int(os.getenv("CHAT_HISTORY_HARD_CAP", str(DEFAULT_CHAT_HISTORY_HARD_CAP)))
+history_message_max_chars = int(
+    os.getenv("HISTORY_MESSAGE_MAX_CHARS", str(DEFAULT_HISTORY_MESSAGE_MAX_CHARS))
+)
 
 _key_schema_cache: Dict[str, Tuple[str, Optional[str]]] = {}
 
 
 MERMAID_BLOCK_PATTERN = re.compile(r"```mermaid\s*(.*?)```", re.IGNORECASE | re.DOTALL)
+
+
+def _is_resource_not_found_error(error: Exception) -> bool:
+    message = str(error)
+    return "ResourceNotFoundException" in message and "Requested resource not found" in message
 
 
 def _get_table_keys(table) -> Tuple[str, Optional[str]]:
@@ -118,6 +129,9 @@ def save_message(
 ) -> str:
     messages_hash_key, messages_range_key = _get_table_keys(messages_table)
     message_ts = _message_sort_value()
+    created_at = now_epoch_seconds()
+    expires_at = expires_at_epoch_seconds()
+    mermaid_code = extract_mermaid_code(message_content) if role == "assistant" else None
 
     item = {
         messages_hash_key: session_id,
@@ -125,7 +139,12 @@ def save_message(
         "role": role,
         "message_type": message_type,
         "message_content": message_content,
+        "content": message_content,
+        "createdAt": created_at,
+        "expiresAt": expires_at,
     }
+    if mermaid_code:
+        item["mermaid_code"] = mermaid_code
     if messages_range_key:
         item[messages_range_key] = message_ts
 
@@ -201,7 +220,8 @@ def ensure_session_external_id(session_id: str) -> str:
 
 
 def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> List[Dict]:
-    message_limit = limit or chat_history_limit
+    requested_limit = limit or chat_history_limit
+    message_limit = max(1, min(requested_limit, chat_history_hard_cap))
     messages_hash_key, messages_range_key = _get_table_keys(messages_table)
 
     query_args = {
@@ -212,13 +232,27 @@ def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> Li
     if messages_range_key:
         query_args["ScanIndexForward"] = False
 
-    response = messages_table.query(**query_args)
+    while len(items) < message_limit:
+        remaining = message_limit - len(items)
+        query_args = {
+            "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
+            "Limit": remaining,
+        }
+        if messages_range_key:
+            query_args["ScanIndexForward"] = False
+        if last_evaluated_key:
+            query_args["ExclusiveStartKey"] = last_evaluated_key
 
-    items = response.get("Items", [])
+        response = messages_table.query(**query_args)
+        items.extend(response.get("Items", []))
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if not last_evaluated_key:
+            break
+
     if messages_range_key:
-        items = list(reversed(items))
+        items = list(reversed(items[-message_limit:]))
     else:
-        items = sorted(items, key=lambda item: item.get("messageTs", ""))
+        items = sorted(items, key=lambda item: item.get("messageTs", ""))[-message_limit:]
 
     chat_messages = []
     for item in items:
@@ -230,6 +264,7 @@ def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> Li
 
         role = item.get("role")
         content = item.get("message_content") or item.get("content")
+        content = _compact_history_content(content)
 
         if role not in ("user", "assistant") or not content:
             continue

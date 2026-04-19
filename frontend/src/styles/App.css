@@ -59,7 +59,7 @@
   padding: 16px max(20px, calc((100% - 900px) / 2));
   text-align: center;
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
   min-height: 76px;
   box-sizing: border-box;
@@ -491,6 +491,10 @@
   gap: 10px;
 }
 
+.service-chip-row {
+  position: relative;
+}
+
 .chip-button {
   display: flex;
   align-items: center;
@@ -498,7 +502,8 @@
   background-color: #1e1f20; 
   color: #e3e3e3;
   border: 2px solid #444746;
-  padding: 10px 12px;
+  width: 100%;
+  padding: 10px 36px 10px 12px;
   border-radius: 12px;
   font-size: 13px;
   font-weight: 600;
@@ -535,6 +540,216 @@
 
 .service-name {
   line-height: 1.3;
+}
+
+.service-info-trigger {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(170, 59, 255, 0.45);
+  background: linear-gradient(135deg, #22172a 0%, #1f2124 100%);
+  color: #d9b6ff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 3;
+  transition: border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.service-info-trigger:hover {
+  color: #ff9900;
+  border-color: rgba(255, 153, 0, 0.7);
+  transform: translateY(-50%) scale(1.05);
+}
+
+.service-info-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 10, 0.68);
+  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow-y: auto;
+  z-index: 9999;
+}
+
+.service-info-card {
+  position: relative;
+  width: min(1020px, 95vw);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(170, 59, 255, 0.38);
+  background: linear-gradient(155deg, rgba(31, 22, 39, 0.98) 0%, rgba(27, 29, 31, 0.98) 100%);
+  color: #e3e3e3;
+  padding: 32px 32px 24px;
+  margin: auto;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6), 0 8px 20px rgba(170, 59, 255, 0.2);
+}
+
+.service-info-docs {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(170, 59, 255, 0.25);
+}
+
+.service-info-docs a {
+  color: #ffb84d;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.service-info-docs a:hover {
+  color: #ffd08a;
+  text-decoration: underline;
+}
+
+.service-info-card h3 {
+  margin: 0 0 12px;
+  font-size: 31px;
+  font-weight: 700;
+  background: linear-gradient(90deg, #aa3bff, #FF9900);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.service-info-card p {
+  margin: 0 0 10px;
+  line-height: 1.65;
+  font-size: 17px;
+  color: #d1d5db;
+}
+
+.service-info-section-title {
+  margin-top: 10px;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.35px;
+  color: #ffb84d !important;
+  text-transform: uppercase;
+}
+
+.service-info-section-title--pros {
+  color: #5fe38f !important;
+}
+
+.service-info-section-title--cons {
+  color: #ff7d7d !important;
+}
+
+.service-pros-cons-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 8px;
+  margin-bottom: 22px;
+}
+
+.service-pros-cons-column {
+  background: rgba(16, 18, 19, 0.42);
+  border: 1px solid rgba(68, 71, 70, 0.6);
+  border-radius: 10px;
+  padding: 10px 12px 8px;
+}
+
+.service-info-card ul {
+  margin: 4px 0 12px 20px;
+  padding: 0;
+}
+
+.service-info-card li {
+  margin-bottom: 8px;
+  font-size: 16px;
+  color: #e5e7eb;
+}
+
+.service-info-card .service-info-docs {
+  margin-top: 18px;
+}
+
+@media (max-width: 720px) {
+  .service-info-card {
+    width: min(680px, 96vw);
+    padding: 24px 22px 18px;
+  }
+
+  .service-info-card h3 {
+    font-size: 27px;
+  }
+
+  .service-info-card p,
+  .service-info-card li {
+    font-size: 16px;
+  }
+
+  .service-info-section-title {
+    font-size: 15px;
+  }
+
+  .service-pros-cons-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .service-info-overlay {
+    padding: 14px;
+  }
+
+  .service-info-card {
+    width: 100%;
+    max-height: calc(100vh - 28px);
+    padding: 20px 18px 16px;
+    border-radius: 12px;
+  }
+
+  .service-info-card h3 {
+    font-size: 24px;
+    margin-bottom: 10px;
+  }
+
+  .service-info-card p,
+  .service-info-card li {
+    font-size: 15px;
+  }
+
+  .service-info-section-title {
+    font-size: 14px;
+  }
+}
+
+.service-info-close {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid #474b50;
+  background: #2a2c30;
+  color: #f1f5f9;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.service-info-close:hover {
+  border-color: rgba(255, 153, 0, 0.75);
+  color: #ffbe66;
 }
 
 .chip-button--unused {
@@ -605,6 +820,78 @@
   color: #131314;
 }
 
+.reasoning-panel {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(170, 59, 255, 0.28);
+  background: linear-gradient(165deg, rgba(25, 20, 32, 0.75) 0%, rgba(19, 20, 22, 0.72) 100%);
+}
+
+.reasoning-panel h4 {
+  margin: 0 0 8px;
+  color: #ffb84d;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
+
+.reasoning-panel p {
+  margin: 0 0 12px;
+  color: #d7dbe0;
+  line-height: 1.62;
+  font-size: 14px;
+}
+
+.reasoning-pros-cons-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+
+.reasoning-column {
+  border-radius: 10px;
+  padding: 10px 10px 6px;
+  border: 1px solid rgba(68, 71, 70, 0.5);
+  background: rgba(12, 13, 14, 0.45);
+}
+
+.reasoning-column h5 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.reasoning-column ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.reasoning-column li {
+  margin-bottom: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.reasoning-column--pros h5 {
+  color: #6ee7a8;
+}
+
+.reasoning-column--pros li::marker {
+  color: #5de38f;
+}
+
+.reasoning-column--cons h5 {
+  color: #ff8a8a;
+}
+
+.reasoning-column--cons li::marker {
+  color: #ff6f6f;
+}
+
 /* --- 8. MERMAID DIAGRAM STYLING --- */
 .mermaid-wrapper {
   display: flex;
@@ -618,6 +905,12 @@
   contain: content;
   cursor: pointer;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+@media (max-width: 760px) {
+  .reasoning-pros-cons-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .mermaid-wrapper:hover {
@@ -831,6 +1124,30 @@
   font-size: 13px;
   margin-bottom: 16px;
   font-weight: 500;
+}
+
+.app-meta-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid rgba(170, 59, 255, 0.2);
+  background: rgba(19, 19, 20, 0.96);
+  color: #879596;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+}
+
+.app-meta-footer a {
+  color: #ffb84d;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.app-meta-footer a:hover {
+  color: #ffd08a;
+  text-decoration: underline;
 }
 
 @media (max-width: 640px) {

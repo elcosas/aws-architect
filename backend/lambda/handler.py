@@ -192,14 +192,128 @@ def normalize_mermaid_code(mermaid_code: str) -> str:
     return normalized
 
 
-def build_architecture_feedback(result: dict, selected_services: list[str], used_services: set[str]) -> str:
-    feedback_lines: list[str] = []
+def _normalize_bullet_list(raw_value) -> list[str]:
+    if isinstance(raw_value, list):
+        return [str(item).strip() for item in raw_value if str(item).strip()]
+    if isinstance(raw_value, str) and raw_value.strip():
+        return [raw_value.strip()]
+    return []
 
-    reasoning = (result.get("architecture_reasoning") or "").strip()
-    if reasoning:
-        feedback_lines.append(f"**Why this architecture:** {reasoning}")
 
+def _ensure_min_bullets(items: list[str], min_count: int, fallback_items: list[str]) -> list[str]:
+    normalized = [item for item in items if item]
+    for fallback in fallback_items:
+        if len(normalized) >= min_count:
+            break
+        if fallback and fallback not in normalized:
+            normalized.append(fallback)
+    while len(normalized) < min_count:
+        normalized.append("Review workload-specific tradeoffs with your expected traffic and team operations model.")
+    return normalized[:max(min_count, len(normalized))]
+
+
+def _split_sentences(text: str) -> list[str]:
+    if not text:
+        return []
+    return [segment.strip() for segment in re.split(r"(?<=[.!?])\s+", text.strip()) if segment.strip()]
+
+
+def _ensure_min_sentences(text: str, min_count: int, fallback_sentences: list[str]) -> str:
+    sentences = _split_sentences(text)
+    for fallback in fallback_sentences:
+        if len(sentences) >= min_count:
+            break
+        if fallback and fallback not in sentences:
+            sentences.append(fallback)
+    while len(sentences) < min_count:
+        sentences.append("This design can be adjusted further based on throughput, budget, and operational constraints.")
+    return " ".join(sentences)
+
+
+def build_architecture_analysis(result: dict, selected_services: list[str], used_services: set[str]) -> dict:
+    analysis_payload = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+
+    why_raw = (
+        analysis_payload.get("why_this_architecture")
+        or result.get("why_this_architecture")
+        or result.get("architecture_reasoning")
+        or ""
+    )
+    why_this_architecture = _ensure_min_sentences(
+        str(why_raw).strip(),
+        6,
+        [
+            f"The selected services ({', '.join(selected_services)}) provide a practical baseline for this workload.",
+            "The architecture emphasizes managed services to reduce operational overhead while keeping iteration speed high.",
+            "Service boundaries are chosen to keep responsibilities clear across API, compute, storage, and identity.",
+            "This layout is designed to support an MVP now and evolve safely as usage grows.",
+            "Security and least-privilege access patterns are easier to enforce with this decomposition.",
+            "The design also balances development velocity with maintainability for a small engineering team.",
+        ],
+    )
+
+    pros_raw = _normalize_bullet_list(analysis_payload.get("pros") or result.get("pros"))
+    cons_raw = _normalize_bullet_list(analysis_payload.get("cons") or result.get("cons"))
+
+    pros = _ensure_min_bullets(
+        pros_raw,
+        5,
+        [
+            "Uses managed AWS components to reduce infrastructure maintenance.",
+            "Supports rapid delivery for MVP and iterative product changes.",
+            "Aligns well with event-driven and API-based integration patterns.",
+            "Can scale by expanding managed service capacity instead of re-architecting immediately.",
+            "Provides a clean base for adding monitoring, security, and CI/CD controls.",
+        ],
+    )
+
+    cons = _ensure_min_bullets(
+        cons_raw,
+        5,
+        [
+            "Multiple managed services can increase architecture complexity over time.",
+            "Cost visibility requires active monitoring across several AWS billing dimensions.",
+            "Service limits and quotas can become bottlenecks if growth is sudden.",
+            "Troubleshooting distributed flows is harder than debugging a monolithic system.",
+            "Strict IAM and configuration discipline is required to avoid security drift.",
+        ],
+    )
+
+    improvements_raw = (
+        analysis_payload.get("improvements")
+        or result.get("improvements")
+        or ""
+    )
+    improvements = _ensure_min_sentences(
+        str(improvements_raw).strip(),
+        3,
+        [
+            "Next, add end-to-end observability with metrics, structured logs, and alerting tied to critical user journeys.",
+            "Then harden security by validating IAM least-privilege roles, encryption settings, and network boundaries for each component.",
+            "Finally, run cost and load tests so you can tune scaling, caching, and data retention before production rollout.",
+        ],
+    )
+
+    return {
+        "why_this_architecture": why_this_architecture,
+        "pros": pros,
+        "cons": cons,
+        "improvements": improvements,
+    }
+
+
+def build_architecture_feedback(analysis: dict, selected_services: list[str], used_services: set[str], result: dict) -> str:
+    feedback_lines: list[str] = [
+        f"**Why this architecture:** {analysis['why_this_architecture']}",
+        "**Pros:**",
+    ]
+
+    feedback_lines.extend([f"- {item}" for item in analysis["pros"]])
+    feedback_lines.append("**Cons:**")
+    feedback_lines.extend([f"- {item}" for item in analysis["cons"]])
+    feedback_lines.append(f"**Improvements:** {analysis['improvements']}")
     feedback_lines.append(f"**Selected services:** {', '.join(selected_services)}")
+
     if used_services:
         feedback_lines.append(f"**Detected in diagram:** {', '.join(sorted(used_services))}")
 
@@ -289,7 +403,14 @@ def handler(event, context):
                             )
                         }
                     else:
-                        result["feedback"] = build_architecture_feedback(result, selected_services, used_services)
+                        analysis = build_architecture_analysis(result, selected_services, used_services)
+                        result["analysis"] = analysis
+                        result["feedback"] = build_architecture_feedback(
+                            analysis,
+                            selected_services,
+                            used_services,
+                            result,
+                        )
 
                 if persistence_available:
                     assistant_content = build_assistant_message_for_storage(result)
