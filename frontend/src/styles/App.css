@@ -303,13 +303,7 @@
 }
 
 .theme-toggle__icon {
-  width: 38px;
-  text-align: center;
-  font-size: 14px;
-  line-height: 1;
-  pointer-events: none;
-  user-select: none;
-  z-index: 1;
+  display: none;
 }
 
 .theme-toggle__icon--sun {
@@ -335,7 +329,7 @@
 }
 
 .theme-toggle__thumb-icon {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1;
 }
 
@@ -780,7 +774,7 @@
 .home-screen__verb-window {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   min-width: 11ch;
   margin-left: 8px;
   overflow: hidden;
@@ -792,6 +786,8 @@
 
 .home-screen__rolling-verb {
   display: inline-block;
+  width: 100%;
+  text-align: center;
   color: #0b1220;
   -webkit-text-fill-color: currentColor;
   font-weight: 800;
