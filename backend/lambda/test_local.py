@@ -13,29 +13,59 @@ if "AWS_REGION" not in os.environ:
 from handler import handler
 
 # Mock the API Gateway WebSocket event
-event = {
+first_event = {
     "requestContext": {
         "routeKey": "sendMessage",
         "connectionId": "test-local-connection-id"
     },
     "body": json.dumps({
+        "sessionID": None,
         "userInput": "A serverless application where users upload images, they get processed, and the metadata is saved.",
         "services": ["Lambda", "S3", "DynamoDB"]
     })
 }
 
-print("Running local test for Mermaid Diagram generation...")
-response = handler(event, None)
+print("Running local test for first-message session creation...")
+first_response = handler(first_event, None)
 
 print("\n--- Diagram Response Status Code ---")
-print(response.get("statusCode"))
+print(first_response.get("statusCode"))
 
 print("\n--- Diagram Response Body ---")
+session_id = None
 try:
-    body = json.loads(response.get("body", "{}"))
-    print(json.dumps(body, indent=2))
+    first_body = json.loads(first_response.get("body", "{}"))
+    session_id = first_body.get("sessionID")
+    print(json.dumps(first_body, indent=2))
 except Exception:
-    print(response.get("body"))
+    print(first_response.get("body"))
+
+print(f"\n--- SessionID returned by backend ---\n{session_id}")
+
+second_event = {
+    "requestContext": {
+        "routeKey": "sendMessage",
+        "connectionId": "test-local-connection-id"
+    },
+    "body": json.dumps({
+        "sessionID": session_id,
+        "userInput": "Please add CloudFront in front of API Gateway.",
+        "services": ["Lambda", "S3", "DynamoDB", "CloudFront", "API Gateway"]
+    })
+}
+
+print("\n\nRunning local test for session reuse...")
+second_response = handler(second_event, None)
+
+print("\n--- Session Reuse Response Status Code ---")
+print(second_response.get("statusCode"))
+
+print("\n--- Session Reuse Response Body ---")
+try:
+    second_body = json.loads(second_response.get("body", "{}"))
+    print(json.dumps(second_body, indent=2))
+except Exception:
+    print(second_response.get("body"))
 
 # ---------------------------------------------------------
 # Step 2: Mock CloudFormation Generation Event
@@ -46,9 +76,8 @@ cfn_event = {
         "connectionId": "test-local-connection-id"
     },
     "body": json.dumps({
-        "userInput": "A serverless application where users upload images, they get processed, and the metadata is saved.",
-        "services": ["Lambda", "S3", "DynamoDB"],
-        "approvedDiagram": "graph LR\n    User((User)) --> S3[S3 Bucket<br/>Image Upload]\n    S3 --> Lambda[Lambda Function<br/>Image Processing]\n    Lambda --> DynamoDB[DynamoDB<br/>Metadata Storage]\n    Lambda --> S3_Processed[S3 Bucket<br/>Processed Images]"
+        "sessionID": session_id,
+        "userInput": "Generate CloudFormation for the latest approved architecture."
     })
 }
 
