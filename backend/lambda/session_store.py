@@ -152,6 +152,19 @@ def save_message(
     return item["messageTs"]
 
 
+def _compact_history_content(content: str) -> str:
+    normalized = (content or "").strip()
+    if not normalized:
+        return ""
+
+    # Keep memory context concise so long-running chats still fit model context.
+    if len(normalized) <= history_message_max_chars:
+        return normalized
+
+    truncated = normalized[: history_message_max_chars].rstrip()
+    return f"{truncated}\n\n[truncated for context window]"
+
+
 def _extract_external_id_from_metadata(message_content: str) -> Optional[str]:
     if not message_content:
         return None
@@ -224,18 +237,14 @@ def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> Li
     message_limit = max(1, min(requested_limit, chat_history_hard_cap))
     messages_hash_key, messages_range_key = _get_table_keys(messages_table)
 
-    query_args = {
-        "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
-        "ConsistentRead": True,
-        "Limit": message_limit,
-    }
-    if messages_range_key:
-        query_args["ScanIndexForward"] = False
+    items: List[Dict] = []
+    last_evaluated_key = None
 
     while len(items) < message_limit:
         remaining = message_limit - len(items)
         query_args = {
             "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
+            "ConsistentRead": True,
             "Limit": remaining,
         }
         if messages_range_key:
