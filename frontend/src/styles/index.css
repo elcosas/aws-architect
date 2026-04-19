@@ -1,4 +1,8 @@
 /* src/styles/index.css */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   background-color: #131314; /* Gemini Dark Background */
