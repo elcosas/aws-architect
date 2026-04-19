@@ -246,6 +246,7 @@ function App() {
   const [isResizingChat, setIsResizingChat] = useState(false);
   const [isMobileServicesOpen, setIsMobileServicesOpen] = useState(false);
   const [homeVerbIndex, setHomeVerbIndex] = useState(0);
+  const [copiedSectionKey, setCopiedSectionKey] = useState(null);
 
   useEffect(() => {
     const finalIndex = HOME_ROTATING_VERBS.length - 1
@@ -330,6 +331,27 @@ function App() {
       ...prev,
       [messageIndex]: !prev[messageIndex],
     }))
+  }
+
+  const buildBulletedList = (items = []) =>
+    items
+      .filter((item) => typeof item === 'string' && item.trim())
+      .map((item) => `- ${item.trim()}`)
+      .join('\n')
+
+  const handleCopySection = async (text, sectionKey) => {
+    const value = typeof text === 'string' ? text.trim() : ''
+    if (!value) return
+
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopiedSectionKey(sectionKey)
+      window.setTimeout(() => {
+        setCopiedSectionKey((prev) => (prev === sectionKey ? null : prev))
+      }, 1400)
+    } catch (error) {
+      console.warn('Unable to copy section text:', error)
+    }
   }
 
   const startResponseTimeout = () => {
@@ -968,11 +990,38 @@ function App() {
 
                 {msg.analysis && (
                   <section className="reasoning-panel" aria-label="Architecture reasoning">
-                    <h4>Why this architecture</h4>
+                    <div className="reasoning-section-header">
+                      <h4>Why this architecture</h4>
+                      <button
+                        type="button"
+                        className="section-copy-button"
+                        onClick={() => handleCopySection(msg.analysis.why_this_architecture, `${index}-why`)}
+                        aria-label="Copy Why this architecture"
+                      >
+                        {copiedSectionKey === `${index}-why` ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
                     <p>{msg.analysis.why_this_architecture}</p>
 
                     {expandedAnalysisByMessage[index] && (
                       <>
+                        <div className="reasoning-section-header reasoning-section-header--subtle">
+                          <h4>Pros &amp; Cons</h4>
+                          <button
+                            type="button"
+                            className="section-copy-button"
+                            onClick={() =>
+                              handleCopySection(
+                                `Pros:\n${buildBulletedList(msg.analysis.pros || [])}\n\nCons:\n${buildBulletedList(msg.analysis.cons || [])}`,
+                                `${index}-pros-cons`,
+                              )
+                            }
+                            aria-label="Copy Pros and Cons"
+                          >
+                            {copiedSectionKey === `${index}-pros-cons` ? 'Copied' : 'Copy'}
+                          </button>
+                        </div>
+
                         <div className="reasoning-pros-cons-grid">
                           <div className="reasoning-column reasoning-column--pros">
                             <h5>Pros</h5>
@@ -993,7 +1042,17 @@ function App() {
                           </div>
                         </div>
 
-                        <h4>Improvements</h4>
+                        <div className="reasoning-section-header">
+                          <h4>Improvements</h4>
+                          <button
+                            type="button"
+                            className="section-copy-button"
+                            onClick={() => handleCopySection(msg.analysis.improvements, `${index}-improvements`)}
+                            aria-label="Copy Improvements"
+                          >
+                            {copiedSectionKey === `${index}-improvements` ? 'Copied' : 'Copy'}
+                          </button>
+                        </div>
                         <p>{msg.analysis.improvements}</p>
                       </>
                     )}

@@ -1382,6 +1382,42 @@
   letter-spacing: 0.3px;
 }
 
+.reasoning-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.reasoning-section-header h4 {
+  margin: 0;
+}
+
+.reasoning-section-header--subtle h4 {
+  color: var(--text-muted);
+  font-size: 13px;
+  letter-spacing: 0.2px;
+}
+
+.section-copy-button {
+  border: 1px solid rgba(170, 59, 255, 0.42);
+  background: rgba(30, 24, 38, 0.88);
+  color: #f5d0fe;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+
+.section-copy-button:hover {
+  border-color: rgba(255, 153, 0, 0.66);
+  transform: translateY(-1px);
+  background: rgba(43, 33, 56, 0.92);
+}
+
 .reasoning-panel p {
   margin: 0 0 12px;
   color: var(--text-primary);
@@ -1920,6 +1956,17 @@
 .theme-light .reasoning-column {
   border-color: #d8dee8;
   background: rgba(248, 250, 252, 0.9);
+}
+
+.theme-light .section-copy-button {
+  border-color: rgba(124, 58, 237, 0.36);
+  background: rgba(255, 255, 255, 0.95);
+  color: #4c1d95;
+}
+
+.theme-light .section-copy-button:hover {
+  border-color: rgba(217, 119, 6, 0.55);
+  background: #ffffff;
 }
 
 .theme-light .analysis-toggle-button {
