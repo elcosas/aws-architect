@@ -4,7 +4,7 @@ import os
 import re
 
 import boto3
-from botocore.exceptions import ClientError, WaiterError
+from botocore.exceptions import ClientError
 
 from bedrock_client import invoke_bedrock
 from session_store import (
@@ -87,7 +87,6 @@ DEFAULT_STACK_NAME_PREFIX = "CloudWeaverStack"
 DEFAULT_SETUP_STACK_NAME = "ChatbotConnect"
 MAX_CFN_GENERATION_ATTEMPTS = 3
 DEPLOYMENT_QUEUE_URL_ENV = "DEPLOYMENT_QUEUE_URL"
-MAX_CLEANUP_RETRIES = 3
 
 
 def get_apigw_management_client(event):
@@ -313,24 +312,6 @@ def get_existing_stack(cfn_client, stack_name: str):
         raise
 
 
-def get_stack_failure_reason(cfn_client, stack_reference: str) -> str:
-    try:
-        events = cfn_client.describe_stack_events(StackName=stack_reference).get("StackEvents", [])
-    except Exception:
-        return "No CloudFormation event details were available."
-
-    for event in events:
-        status = event.get("ResourceStatus", "")
-        if not isinstance(status, str):
-            continue
-        if status.endswith("_FAILED"):
-            resource = event.get("LogicalResourceId") or "unknown resource"
-            reason = event.get("ResourceStatusReason") or "no reason provided"
-            return f"{resource}: {reason}"
-
-    return "No explicit failed resource reason was returned by CloudFormation."
-
-
 def _stringify_validation_issues(issues: list[dict]) -> str:
     if not issues:
         return ""
@@ -371,17 +352,13 @@ def build_cfn_repair_prompt(
     local_validation: dict,
     aws_validation_error: str,
     attempt: int,
-    previous_failures: list[str],
 ) -> str:
     local_errors = _stringify_validation_issues(local_validation.get("errors", []))
     local_warnings = _stringify_validation_issues(local_validation.get("warnings", []))
-    failure_history = "\n".join(f"- {item}" for item in previous_failures) or "- None"
     return (
         f"{base_prompt}\n\n"
         f"Repair attempt {attempt}.\n"
         "The previous CloudFormation YAML failed validation.\n"
-        "Previous failure history:\n"
-        f"{failure_history}\n"
         f"Local syntax errors: {local_errors or 'None'}\n"
         f"Local syntax warnings: {local_warnings or 'None'}\n"
         f"AWS validate_template error: {aws_validation_error or 'None'}\n\n"
@@ -394,20 +371,17 @@ def build_cfn_repair_prompt(
 def generate_validated_cloudformation_template(cfn_client, last_assistant_message: str, approved_diagram: str):
     prompt = build_cfn_prompt(last_assistant_message, approved_diagram)
     latest_failure = "CloudFormation generation failed."
-    attempt_failures: list[str] = []
 
     for attempt in range(1, MAX_CFN_GENERATION_ATTEMPTS + 1):
         cfn_sys_prompt = get_system_prompt("cfn-prompt")
         result = invoke_bedrock(cfn_sys_prompt, prompt, tool_type="cloudformation")
         if result.get("error"):
             latest_failure = f"Bedrock generation error (attempt {attempt}): {result.get('error')}"
-            attempt_failures.append(latest_failure)
             continue
 
         cloudformation_yaml = str(result.get("cloudformation_yaml", "")).strip()
         if not cloudformation_yaml:
             latest_failure = f"Bedrock returned no CloudFormation YAML (attempt {attempt})."
-            attempt_failures.append(latest_failure)
             continue
 
         local_validation = run_local_cloudformation_validation(cloudformation_yaml)
@@ -425,18 +399,14 @@ def generate_validated_cloudformation_template(cfn_client, last_assistant_messag
             f"Local: {_stringify_validation_issues(local_validation.get('errors', [])) or 'None'}. "
             f"AWS: {aws_validation_error or 'None'}."
         )
-        attempt_failures.append(latest_failure)
         prompt = build_cfn_repair_prompt(
             build_cfn_prompt(last_assistant_message, approved_diagram),
             cloudformation_yaml,
             local_validation,
             aws_validation_error,
             attempt,
-            attempt_failures,
         )
 
-    if attempt_failures:
-        raise RuntimeError(f"{latest_failure} Full attempt history: {' | '.join(attempt_failures)}")
     raise RuntimeError(latest_failure)
 
 
@@ -461,26 +431,10 @@ def deploy_cloudformation_stack(cfn_client, stack_name: str, template_body: str)
         if existing_status in {"ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "CREATE_FAILED"}:
             # Recover from failed stack states so retried deployments can proceed automatically.
             cfn_client.delete_stack(StackName=stack_name)
-            try:
-                cfn_client.get_waiter("stack_delete_complete").wait(
-                    StackName=stack_name,
-                    WaiterConfig={"Delay": 5, "MaxAttempts": 120},
-                )
-            except WaiterError:
-                residual_stack = get_existing_stack(cfn_client, stack_name)
-                residual_status = (residual_stack or {}).get("StackStatus")
-                if not residual_stack:
-                    pass
-                elif isinstance(residual_status, str) and residual_status.endswith("_IN_PROGRESS"):
-                    raise RuntimeError(
-                        "Previous failed deployment stack cleanup is still in progress. "
-                        "Please retry in a few minutes."
-                    )
-                else:
-                    raise RuntimeError(
-                        "Previous failed deployment stack could not be cleaned up automatically. "
-                        "Delete the stack manually in CloudFormation and retry."
-                    )
+            cfn_client.get_waiter("stack_delete_complete").wait(
+                StackName=stack_name,
+                WaiterConfig={"Delay": 5, "MaxAttempts": 120},
+            )
             existing_stack = None
 
         if existing_stack:
@@ -489,73 +443,17 @@ def deploy_cloudformation_stack(cfn_client, stack_name: str, template_body: str)
             )
 
     if not existing_stack:
-        try:
-            create_response = cfn_client.create_stack(
-                StackName=stack_name,
-                TemplateBody=template_body,
-                Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
-                OnFailure="DO_NOTHING",
-            )
-            stack_id = create_response.get("StackId")
-        except ClientError as exc:
-            error_code = exc.response.get("Error", {}).get("Code", "")
-            if error_code in {"AlreadyExistsException", "ValidationError"} and "already exists" in str(exc).lower():
-                latest_stack = get_existing_stack(cfn_client, stack_name)
-                latest_status = (latest_stack or {}).get("StackStatus")
-                if isinstance(latest_status, str) and latest_status.endswith("_IN_PROGRESS"):
-                    raise RuntimeError(
-                        f"Deployment is already in progress for stack {stack_name}. "
-                        "Wait for completion and retry if needed."
-                    )
-                if latest_status in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"}:
-                    return {
-                        "stack_id": (latest_stack or {}).get("StackId"),
-                        "operation": "existing",
-                        "status": latest_status,
-                    }
-            raise
-        try:
-            cfn_client.get_waiter("stack_create_complete").wait(
-                StackName=stack_name,
-                WaiterConfig={"Delay": 5, "MaxAttempts": 120},
-            )
-        except WaiterError:
-            latest_stack = get_existing_stack(cfn_client, stack_name)
-            latest_status = (latest_stack or {}).get("StackStatus")
-
-            if latest_status == "CREATE_COMPLETE":
-                operation = "create"
-                return {
-                    "stack_id": (latest_stack or {}).get("StackId") or stack_id,
-                    "operation": operation,
-                    "status": latest_status,
-                }
-
-            if not latest_stack:
-                raise RuntimeError(
-                    "Deployment stack was not created or is not yet queryable. "
-                    "Check CloudFormation stack events and retry."
-                )
-
-            if latest_status in {"ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "CREATE_FAILED"}:
-                failure_reason = get_stack_failure_reason(
-                    cfn_client,
-                    (latest_stack or {}).get("StackId") or stack_name,
-                )
-                raise RuntimeError(
-                    "Deployment creation failed. "
-                    f"CloudFormation reason: {failure_reason}"
-                )
-
-            if isinstance(latest_status, str) and latest_status.endswith("_IN_PROGRESS"):
-                raise RuntimeError(
-                    "Deployment is still in progress. Check CloudFormation stack events and wait for completion."
-                )
-
-            raise RuntimeError(
-                f"Deployment reached unexpected stack status {latest_status}. "
-                "Review CloudFormation stack events and retry."
-            )
+        create_response = cfn_client.create_stack(
+            StackName=stack_name,
+            TemplateBody=template_body,
+            Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
+            OnFailure="DELETE",
+        )
+        stack_id = create_response.get("StackId")
+        cfn_client.get_waiter("stack_create_complete").wait(
+            StackName=stack_name,
+            WaiterConfig={"Delay": 5, "MaxAttempts": 120},
+        )
         operation = "create"
 
     final_stack = cfn_client.describe_stacks(StackName=stack_name).get("Stacks", [{}])[0]
@@ -586,20 +484,9 @@ def cleanup_setup_stack(cfn_client, setup_stack_name: str, deployed_stack_name: 
         described = cfn_client.describe_stacks(StackName=setup_stack_name)
         stack = (described.get("Stacks") or [{}])[0]
         stack_status = stack.get("StackStatus", "")
-        stack_reason = stack.get("StackStatusReason", "")
 
         if stack_status == "DELETE_IN_PROGRESS":
             return {"status": "in_progress"}
-
-        if stack_status == "DELETE_FAILED":
-            failure_reason = stack_reason or get_stack_failure_reason(cfn_client, setup_stack_name)
-            return {
-                "status": "failed",
-                "reason": f"Setup stack deletion failed: {failure_reason}",
-            }
-
-        if stack_status == "DELETE_COMPLETE":
-            return {"status": "deleted"}
     except Exception as exc:
         if _is_stack_not_found_error(exc):
             return {"status": "not_found"}
@@ -619,20 +506,6 @@ def user_facing_deployment_error(error: Exception) -> str:
 
     if "accessdenied" in lowered or "not authorized" in lowered:
         return "Deployment authorization failed. Verify IAM trust policy, permissions, and ExternalID configuration."
-    if "cleanup is still in progress" in lowered:
-        return "A previous failed deployment cleanup is still running. Retry in a few minutes."
-    if "could not be cleaned up automatically" in lowered:
-        return "A previous failed deployment stack needs manual cleanup. Delete the stack in CloudFormation, then retry."
-    if "deployment stack was not created" in lowered:
-        return "Deployment did not create a stack. Review CloudFormation stack events and retry."
-    if "cloudformation reason:" in lowered:
-        reason = message.split("CloudFormation reason:", 1)[-1].strip()
-        return (
-            "Deployment creation failed. "
-            f"CloudFormation reported: {reason}"
-        )
-    if "deployment is still in progress" in lowered:
-        return "Deployment is still in progress. Check CloudFormation stack events and wait for completion."
     if "update_rollback_complete" in lowered:
         return "Deployment update failed and was rolled back. Review CloudFormation stack events in AWS Console and retry after fixes."
     if "create_failed" in lowered or "rollback_complete" in lowered:
@@ -657,24 +530,6 @@ def run_generate_cloudformation_deployment(session_id: str, role_arn: str, deplo
         deployment_inputs["region"],
         assume_role_response,
     )
-
-    # Fast path for duplicate/replayed jobs: avoid regenerating/redeploying when stack already exists.
-    existing_stack = get_existing_stack(cfn_client, deployment_inputs["stack_name"])
-    existing_status = (existing_stack or {}).get("StackStatus")
-    if existing_status in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"}:
-        cleanup_result = cleanup_setup_stack(
-            cfn_client,
-            deployment_inputs["setup_stack_name"],
-            deployment_inputs["stack_name"],
-        )
-        return {
-            "suppressClientMessage": True,
-            "stackName": deployment_inputs["stack_name"],
-            "stackId": (existing_stack or {}).get("StackId"),
-            "region": deployment_inputs["region"],
-            "deploymentOperation": "existing",
-            "cleanup": cleanup_result,
-        }
 
     latest_assistant_context = get_latest_assistant_architecture_context(session_id)
     if not latest_assistant_context:
@@ -725,7 +580,7 @@ def run_generate_cloudformation_deployment(session_id: str, role_arn: str, deplo
         )
     elif cleanup_status == "delete_requested":
         cleanup_note = " Setup stack cleanup was requested and is now in progress."
-    elif cleanup_status in ("skipped", "not_found", "in_progress", "deleted"):
+    elif cleanup_status in ("skipped", "not_found", "in_progress"):
         cleanup_note = (
             " Setup stack cleanup status: "
             f"{cleanup_status.replace('_', ' ')}"
@@ -738,18 +593,12 @@ def run_generate_cloudformation_deployment(session_id: str, role_arn: str, deplo
         f" Template validated after {generation_attempts} attempt(s)."
         f"{cleanup_note}"
     )
-    try:
-        save_message(
-            session_id,
-            "assistant",
-            success_message,
-            message_type="standard",
-        )
-    except Exception as persistence_error:
-        print(
-            "Deployment succeeded but assistant success message could not be persisted: "
-            f"{persistence_error}"
-        )
+    save_message(
+        session_id,
+        "assistant",
+        success_message,
+        message_type="standard",
+    )
 
     return {
         "message": success_message,
@@ -758,58 +607,6 @@ def run_generate_cloudformation_deployment(session_id: str, role_arn: str, deplo
         "region": deployment_inputs["region"],
         "deploymentOperation": deployment_result.get("operation"),
         "cleanup": cleanup_result,
-    }
-
-
-def run_cleanup_retry(session_id: str, role_arn: str, deployment_inputs: dict):
-    external_id = get_session_external_id(session_id)
-    if not external_id:
-        raise ValueError(
-            "No ExternalID found for this session. Send a chat message first, then retry authentication."
-        )
-
-    assume_role_response = assume_cross_account_role(role_arn, external_id)
-    cfn_client = assumed_role_client(
-        "cloudformation",
-        deployment_inputs["region"],
-        assume_role_response,
-    )
-
-    cleanup_result = cleanup_setup_stack(
-        cfn_client,
-        deployment_inputs["setup_stack_name"],
-        deployment_inputs["stack_name"],
-    )
-
-    cleanup_status = cleanup_result.get("status")
-    if cleanup_status in {"not_found", "deleted"}:
-        return {
-            "message": "Setup stack cleanup completed successfully.",
-            "stackName": deployment_inputs["stack_name"],
-            "region": deployment_inputs["region"],
-            "cleanup": cleanup_result,
-            "cleanupTerminal": True,
-            "cleanupSuccess": True,
-        }
-
-    if cleanup_status == "failed":
-        return {
-            "error": cleanup_result.get("reason")
-            or "Setup stack cleanup failed after deployment.",
-            "stackName": deployment_inputs["stack_name"],
-            "region": deployment_inputs["region"],
-            "cleanup": cleanup_result,
-            "cleanupTerminal": True,
-            "cleanupSuccess": False,
-        }
-
-    return {
-        "message": "Setup stack cleanup is still in progress.",
-        "stackName": deployment_inputs["stack_name"],
-        "region": deployment_inputs["region"],
-        "cleanup": cleanup_result,
-        "cleanupTerminal": False,
-        "cleanupSuccess": False,
     }
 
 
@@ -831,29 +628,6 @@ def enqueue_deployment_job(queue_url: str, request_context: dict, payload: dict)
     )
 
 
-def enqueue_cleanup_retry_job(queue_url: str, body: dict, retry_count: int):
-    sqs_client = boto3.client("sqs")
-    delay_seconds = min(900, max(60, retry_count * 180))
-    retry_payload = {
-        "jobType": "cleanupRetry",
-        "cleanupRetryCount": retry_count,
-        "sessionID": body.get("sessionID"),
-        "arn": body.get("arn") or body.get("roleArn"),
-        "roleArn": body.get("roleArn") or body.get("arn"),
-        "region": body.get("region"),
-        "stackName": body.get("stackName"),
-        "setupStackName": body.get("setupStackName"),
-        "connectionId": body.get("connectionId"),
-        "domainName": body.get("domainName"),
-        "stage": body.get("stage"),
-    }
-    sqs_client.send_message(
-        QueueUrl=queue_url,
-        DelaySeconds=delay_seconds,
-        MessageBody=json.dumps(retry_payload),
-    )
-
-
 def process_deployment_queue_records(records: list[dict]):
     for record in records:
         try:
@@ -864,8 +638,6 @@ def process_deployment_queue_records(records: list[dict]):
 
         session_id = normalize_session_id(body.get("sessionID"))
         role_arn = normalize_role_arn(body.get("arn") or body.get("roleArn"))
-        job_type = str(body.get("jobType") or "deploy")
-        cleanup_retry_count = int(body.get("cleanupRetryCount") or 0)
 
         apigw_client = get_apigw_management_client_for_endpoint(
             body.get("domainName"),
@@ -897,7 +669,7 @@ def process_deployment_queue_records(records: list[dict]):
         except Exception:
             receive_count = 1
 
-        if job_type == "deploy" and receive_count > 1:
+        if receive_count > 1:
             # SQS redelivery can happen after a successful first run. Skip duplicate completion runs.
             try:
                 external_id = get_session_external_id(session_id)
@@ -919,50 +691,31 @@ def process_deployment_queue_records(records: list[dict]):
             except Exception as duplicate_check_error:
                 print(f"Duplicate-delivery check failed; processing retry: {duplicate_check_error}")
 
-        try:
-            if job_type == "cleanupRetry":
-                result_payload = run_cleanup_retry(session_id, role_arn, deployment_inputs)
-            else:
-                result_payload = run_generate_cloudformation_deployment(
+        if receive_count == 1:
+            send_message_to_client(
+                apigw_client,
+                connection_id,
+                build_response_payload(
+                    {
+                        "message": (
+                            "Deployment job started. Generating and validating CloudFormation template now..."
+                        )
+                    },
                     session_id,
-                    role_arn,
-                    deployment_inputs,
-                )
+                ),
+            )
 
-            cleanup_status = (result_payload.get("cleanup") or {}).get("status")
-            queue_url = os.getenv(DEPLOYMENT_QUEUE_URL_ENV, "").strip()
-            if queue_url and cleanup_status in {"in_progress", "delete_requested"}:
-                next_retry = cleanup_retry_count + 1
-                if next_retry <= MAX_CLEANUP_RETRIES:
-                    enqueue_cleanup_retry_job(queue_url, body, next_retry)
-
-            if result_payload.get("suppressClientMessage"):
-                continue
-
-            if job_type == "deploy":
-                send_message_to_client(
-                    apigw_client,
-                    connection_id,
-                    build_response_payload(
-                        {
-                            **result_payload,
-                            "deploymentEvent": "terminal",
-                        },
-                        session_id,
-                    ),
-                )
-                continue
-
-            if result_payload.get("cleanupTerminal"):
-                followup_payload = {
-                    **result_payload,
-                    "deploymentEvent": "cleanup-terminal",
-                }
-                send_message_to_client(
-                    apigw_client,
-                    connection_id,
-                    build_response_payload(followup_payload, session_id),
-                )
+        try:
+            result_payload = run_generate_cloudformation_deployment(
+                session_id,
+                role_arn,
+                deployment_inputs,
+            )
+            send_message_to_client(
+                apigw_client,
+                connection_id,
+                build_response_payload(result_payload, session_id),
+            )
         except Exception as exc:
             if is_missing_dynamodb_resource_error(exc):
                 error_message = (
@@ -972,32 +725,10 @@ def process_deployment_queue_records(records: list[dict]):
             else:
                 error_message = user_facing_deployment_error(exc)
 
-            if job_type == "deploy":
-                send_message_to_client(
-                    apigw_client,
-                    connection_id,
-                    build_response_payload(
-                        {
-                            "error": error_message,
-                            "deploymentEvent": "error",
-                        },
-                        session_id,
-                    ),
-                )
-                continue
-
             send_message_to_client(
                 apigw_client,
                 connection_id,
-                build_response_payload(
-                    {
-                        "error": error_message,
-                        "deploymentEvent": "cleanup-terminal",
-                        "cleanupTerminal": True,
-                        "cleanupSuccess": False,
-                    },
-                    session_id,
-                ),
+                build_response_payload({"error": error_message}, session_id),
             )
 
 
@@ -1331,23 +1062,6 @@ def handler(event, context):
                 return send_ws_and_return(apigw_client, connection_id, error_payload)
 
             try:
-                try:
-                    save_message(
-                        session_id,
-                        "user",
-                        (
-                            "User requested CloudFormation deployment. "
-                            f"roleArn={role_arn}, region={deployment_inputs['region']}, "
-                            f"stackName={deployment_inputs['stack_name']}"
-                        ),
-                        message_type="standard",
-                    )
-                except Exception as persistence_error:
-                    print(
-                        "Continuing deployment without persisting user deployment intent: "
-                        f"{persistence_error}"
-                    )
-
                 queue_url = os.getenv(DEPLOYMENT_QUEUE_URL_ENV, "").strip()
 
                 if queue_url:
@@ -1360,7 +1074,6 @@ def handler(event, context):
                         {
                             "message": queued_message,
                             "jobQueued": True,
-                            "deploymentEvent": "queued",
                             "stackName": deployment_inputs["stack_name"],
                             "region": deployment_inputs["region"],
                         },
