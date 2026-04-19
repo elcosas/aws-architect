@@ -54,6 +54,10 @@ These are the AWS services used internally to power the application itself:
 
 - **IAM** — Controls access and permissions for AWS resources used by the app.
 	It keeps each service limited to only the actions it needs.
+	- **IAM Identity Center** — Centralizes user access and account/application
+	  sign-in management for the team environment.
+- **STS (Security Token Service)** — Issues temporary credentials used for
+	secure, short-lived access and role assumption workflows.
 - **S3** — Stores frontend build assets and can also be used for generated
 	artifacts or deployment files.
 - **Lambda** — Runs the backend handlers that receive prompts, call Bedrock,
@@ -66,6 +70,7 @@ These are the AWS services used internally to power the application itself:
 - **DynamoDB** — Stores lightweight app/session data when persistent state is
 	needed.
 - **API Gateway** — Receives frontend requests and forwards them to Lambda.
+
 
 ## Current focus
 
