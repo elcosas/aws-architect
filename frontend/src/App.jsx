@@ -2,6 +2,10 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import MermaidChart from './MermaidChart'
+import HelpGuideModal from './components/Modals/HelpGuideModal'
+import ServiceInfoModal from './components/Modals/ServiceInfoModal'
+import DeployModal from './components/Modals/DeployModal'
+import InputArea from './components/InputArea'
 import './styles/App.css'
 
 const DEFAULT_TEST_MODE = import.meta.env.VITE_TEST_MODE !== 'false'
@@ -910,113 +914,6 @@ function App() {
 
   const activeServiceDetails = activeServiceInfo ? SERVICE_INFO[activeServiceInfo] : null
 
-  const serviceInfoModal =
-    activeServiceInfo &&
-    activeServiceDetails &&
-    typeof document !== 'undefined'
-      ? createPortal(
-        <div className="service-info-overlay" onClick={() => setActiveServiceInfo(null)}>
-          <div className="service-info-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label={`${activeServiceInfo} details`}>
-            <button
-              type="button"
-              className="service-info-close"
-              aria-label="Close service details"
-              onClick={() => setActiveServiceInfo(null)}
-            >
-              ✕
-            </button>
-
-            <h3>{activeServiceInfo}</h3>
-
-            <p className="service-info-section-title">General use</p>
-            <p>{activeServiceDetails.generalUse}</p>
-
-            <div className="service-pros-cons-grid">
-              <div className="service-pros-cons-column">
-                <p className="service-info-section-title service-info-section-title--pros">Pros</p>
-                <ul>
-                  {activeServiceDetails.pros.map((item) => (
-                    <li key={`${activeServiceInfo}-pro-${item}`}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="service-pros-cons-column">
-                <p className="service-info-section-title service-info-section-title--cons">Cons</p>
-                <ul>
-                  {activeServiceDetails.cons.map((item) => (
-                    <li key={`${activeServiceInfo}-con-${item}`}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-
-            <p className="service-info-section-title">Commonly used with</p>
-            <p>{activeServiceDetails.commonlyUsedWith.join(', ')}</p>
-
-            <div className="service-info-docs">
-              <a
-                href={activeServiceDetails.docsUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                🔗 Official AWS documentation
-              </a>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )
-      : null
-
-  const helpGuideModal =
-    isHelpModalOpen &&
-    typeof document !== 'undefined'
-      ? createPortal(
-        <div className="guide-overlay" onClick={() => setIsHelpModalOpen(false)}>
-          <div className="guide-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="How to use Cloud Weaver">
-            <button
-              type="button"
-              className="guide-close"
-              aria-label="Close guide"
-              onClick={() => setIsHelpModalOpen(false)}
-            >
-              ✕
-            </button>
-
-            <h3>How to use Cloud Weaver</h3>
-
-            <p className="guide-section-title">1) Start with basic prompts + memory</p>
-            <ol>
-              <li>Describe what you want in plain language (for example: workload type, scale, security, and region).</li>
-              <li>Refine with follow-ups like “make it cheaper,” “add HA,” or “use private subnets.”</li>
-              <li>The current session remembers prior context, so you can iteratively improve one architecture over multiple prompts.</li>
-            </ol>
-
-            <p className="guide-section-title">2) Read the Mermaid diagram</p>
-            <ol>
-              <li>Each node is an AWS service/component in the design.</li>
-              <li>Arrows/links represent request flow, data flow, or control relationships.</li>
-              <li>Read left-to-right (entry to backend/data), then validate security boundaries and data persistence points.</li>
-            </ol>
-
-            <p className="guide-section-title">3) Deploy with guided confirmation</p>
-            <ol>
-              <li>Click <strong>Confirm &amp; Deploy Architecture</strong> under the generated diagram.</li>
-              <li>First confirmation is a browser confirmation step.</li>
-              <li>Second confirmation opens the <strong>Connect AWS Account</strong> flow where you can:</li>
-            </ol>
-            <ul>
-              <li>Use <strong>Open AWS Setup Link</strong> to launch CloudFormation Quick Create.</li>
-              <li>Provide your <strong>IAM Role ARN</strong> (example format shown in the modal).</li>
-              <li>Click <strong>Generate CloudFormation</strong> to produce the deployable template.</li>
-            </ul>
-          </div>
-        </div>,
-        document.body,
-      )
-      : null
-
   return (
     <div
       ref={appContainerRef}
@@ -1150,220 +1047,59 @@ function App() {
         </span>
       </div>
 
-      <footer
-        ref={inputAreaRef}
-        className="input-area"
-        style={{
-          ...(inputAreaHeight ? { height: `${inputAreaHeight}px` } : {}),
-          '--controls-scale': controlsScale,
-        }}
-      >
-        {isUserScrolledUp && messages.length > 0 && (
-          <button className="scroll-to-bottom" onClick={scrollToBottom}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg></button>
-        )}
-        <div className="mode-selector-row" ref={modeMenuRef}>
-          <span className={`active-mode-indicator ${isTestMode ? 'test' : 'dev'}`}>
-            {isTestMode ? '● Test Mode Active' : '● Dev Mode Active'}
-          </span>
-          <button
-            type="button"
-            className="guide-help-button"
-            aria-label="How to use Cloud Weaver"
-            onClick={() => setIsHelpModalOpen(true)}
-          >
-            ?
-          </button>
-          <button
-            type="button"
-            className="mode-gear-button"
-            onClick={() => setIsModeMenuOpen((prev) => !prev)}
-            aria-label="Open mode selector"
-            aria-expanded={isModeMenuOpen}
-          >
-            ⚙
-          </button>
-          {isModeMenuOpen && (
-            <div className="mode-dropdown">
-              <button
-                type="button"
-                className={`mode-option test ${isTestMode ? 'selected' : ''}`}
-                onClick={() => handleModeSelect('test')}
-              >
-                Test Mode
-              </button>
-              <button
-                type="button"
-                className={`mode-option dev ${!isTestMode ? 'selected' : ''}`}
-                onClick={() => handleModeSelect('dev')}
-              >
-                Dev Mode
-              </button>
-            </div>
-          )}
-          <button
-            type="button"
-            className="services-toggle-button"
-            onClick={() => setIsMobileServicesOpen((prev) => !prev)}
-            aria-label="Toggle AWS services panel"
-            aria-expanded={isMobileServicesOpen}
-          >
-            {isMobileServicesOpen ? '▼ Services' : '▲ Services'}
-          </button>
-        </div>
-        <form className="input-form" onSubmit={handleSendMessage}>
-          <textarea
-            className="chat-input"
-            rows={1}
-            placeholder="Ask Cloud Weaver"
-            value={inputValue}
-            onInput={(e) => {
-              setInputValue(e.target.value);
-              e.target.style.height = 'auto';
-              e.target.style.height = e.target.scrollHeight + 'px';
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSendMessage(e);
-              }
-            }}
-            disabled={isLoading}
-          />
-          <button type="submit" className="send-button" disabled={isLoading || !inputValue.trim()}>Send</button>
-        </form>
-        <div className={`services-panel-container ${isMobileServicesOpen ? 'is-open' : ''}`}>
-          <div className="services-panel" aria-label="AWS services in current diagram">
-            <div className={`services-grid ${awsServices.length === 7 ? 'services-grid--seven' : ''}`}>
-              {awsServices.map(service => {
-                const isUsed = activeServices.has(service)
-                const isSelected = selectedServices.includes(service)
-                return (
-                  <div key={service} className="service-chip-row">
-                    <button
-                      type="button"
-                      className={`chip-button ${isUsed ? 'chip-button--used' : 'chip-button--unused'} ${isSelected ? 'chip-button--selected' : ''}`}
-                      onClick={() => handleServiceToggle(service)}
-                      aria-pressed={isSelected}
-                    >
-                      <span className={`service-status-dot ${isUsed ? 'used' : 'unused'}`} aria-hidden="true" />
-                      <span className="service-name">{service}</span>
-                    </button>
+      <InputArea
+        inputAreaRef={inputAreaRef}
+        inputAreaHeight={inputAreaHeight}
+        controlsScale={controlsScale}
+        isUserScrolledUp={isUserScrolledUp}
+        messages={messages}
+        scrollToBottom={scrollToBottom}
+        modeMenuRef={modeMenuRef}
+        isTestMode={isTestMode}
+        setIsHelpModalOpen={setIsHelpModalOpen}
+        setIsModeMenuOpen={setIsModeMenuOpen}
+        isModeMenuOpen={isModeMenuOpen}
+        handleModeSelect={handleModeSelect}
+        setIsMobileServicesOpen={setIsMobileServicesOpen}
+        isMobileServicesOpen={isMobileServicesOpen}
+        handleSendMessage={handleSendMessage}
+        inputValue={inputValue}
+        setInputValue={setInputValue}
+        isLoading={isLoading}
+        awsServices={awsServices}
+        activeServices={activeServices}
+        selectedServices={selectedServices}
+        handleServiceToggle={handleServiceToggle}
+        setActiveServiceInfo={setActiveServiceInfo}
+        appMetaFooterRef={appMetaFooterRef}
+      />
 
-                    <button
-                      type="button"
-                      className="service-info-trigger"
-                      aria-label={`Learn about ${service}`}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setActiveServiceInfo(service)
-                      }}
-                    >
-                      i
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-          
-          <div ref={appMetaFooterRef} className="app-meta-footer" aria-label="Application footer">
-            <span>© 2026 Cloud Weaver</span>
-            <span aria-hidden="true">•</span>
-            <a href="https://github.com/elcosas/aws-architect" target="_blank" rel="noreferrer">
-              About
-            </a>
-          </div>
-        </div>
-      </footer>
+      <ServiceInfoModal 
+        activeServiceInfo={activeServiceInfo} 
+        serviceDetails={activeServiceDetails} 
+        onClose={() => setActiveServiceInfo(null)} 
+      />
+      
+      <HelpGuideModal 
+        isOpen={isHelpModalOpen} 
+        onClose={() => setIsHelpModalOpen(false)} 
+      />
 
-      {serviceInfoModal}
-  {helpGuideModal}
-
-      {isDeployModalOpen && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <h3>Connect AWS Account</h3>
-            <p>
-              Click below to open AWS CloudFormation Quick Create for the ChatbotConnect setup stack.
-              This uses a backend-generated ExternalID and does not require sharing long-lived AWS keys.
-            </p>
-            
-            {deployError && (
-              <div className="credential-error">
-                {deployError}
-              </div>
-            )}
-
-            {deployStatus && (
-              <div className="credential-error" style={{ borderColor: '#3fb950', color: '#3fb950', backgroundColor: 'rgba(63, 185, 80, 0.12)' }}>
-                {deployStatus}
-              </div>
-            )}
-
-            {latestQuickCreateLink && (
-              <div className="form-group">
-                <label>CloudFormation Setup Link (Fallback)</label>
-                <a
-                  href={latestQuickCreateLink}
-                  target="cloudweaver-cfn-setup"
-                  rel="noreferrer"
-                  style={{ color: '#ffb84d', wordBreak: 'break-all', fontSize: '13px' }}
-                >
-                  {latestQuickCreateLink}
-                </a>
-              </div>
-            )}
-
-            {latestExternalId && (
-              <div className="form-group">
-                <label>Latest ExternalID</label>
-                <input
-                  type="text"
-                  className="modal-input"
-                  value={latestExternalId}
-                  readOnly
-                />
-              </div>
-            )}
-
-            <div className="form-group">
-              <label>IAM Role ARN</label>
-              <input
-                type="text"
-                className="modal-input"
-                value={roleArn}
-                onChange={(event) => {
-                  setRoleArn(event.target.value)
-                  if (deployError) {
-                    setDeployError('')
-                  }
-                }}
-                placeholder="arn:aws:iam::123456789012:role/ChatbotIntegrationRole-ChatbotConnect"
-                aria-invalid={roleArn.trim().length > 0 && !hasValidRoleArn}
-              />
-            </div>
-
-            <div className="modal-actions">
-              <button type="button" className="btn-cancel" onClick={handleCloseModal}>Cancel</button>
-              <button
-                type="button"
-                className="btn-confirm"
-                onClick={handleConnectAwsAccount}
-                disabled={isFetchingExternalId}
-              >
-                {isFetchingExternalId ? 'Preparing Link...' : 'Open AWS Setup Link'}
-              </button>
-              <button
-                type="button"
-                className="btn-confirm"
-                onClick={handleGenerateCloudFormationWithArn}
-              >
-                Deploy Services
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeployModal
+        isOpen={isDeployModalOpen}
+        onClose={handleCloseModal}
+        deployError={deployError}
+        setDeployError={setDeployError}
+        deployStatus={deployStatus}
+        latestQuickCreateLink={latestQuickCreateLink}
+        latestExternalId={latestExternalId}
+        roleArn={roleArn}
+        setRoleArn={setRoleArn}
+        hasValidRoleArn={hasValidRoleArn}
+        isFetchingExternalId={isFetchingExternalId}
+        onConnectAwsAccount={handleConnectAwsAccount}
+        onDeployServices={handleGenerateCloudFormationWithArn}
+      />
     </div>
   )
 }
