@@ -11,6 +11,40 @@ const getCurrentTime = () => {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
+const SERVICE_MATCHERS = {
+  'Amazon Bedrock': /\bbedrock\b/i,
+  'AWS Lambda': /\blambda\b/i,
+  'Amazon S3': /\bs3\b|simple\s+storage/i,
+  'API Gateway': /api\s*gateway|apigateway/i,
+  'CloudFront': /\bcloudfront\b/i,
+  'CloudFormation': /\bcloudformation\b/i,
+  'DynamoDB': /\bdynamodb\b/i,
+  'AWS IAM': /\biam\b|identity\s+and\s+access\s+management/i,
+};
+
+const extractLatestMermaidCode = (messages) => {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message?.role !== 'assistant' || typeof message?.content !== 'string') continue;
+    const mermaidMatch = message.content.match(/```mermaid\s*([\s\S]*?)```/i);
+    if (mermaidMatch?.[1]) return mermaidMatch[1];
+  }
+  return '';
+};
+
+const getUsedServicesFromMermaid = (mermaidCode) => {
+  const activeServices = new Set();
+  const normalized = mermaidCode.toLowerCase();
+
+  Object.entries(SERVICE_MATCHERS).forEach(([serviceName, matcher]) => {
+    if (matcher.test(normalized)) {
+      activeServices.add(serviceName);
+    }
+  });
+
+  return activeServices;
+};
+
 function App() {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
@@ -59,6 +93,12 @@ function App() {
     "Amazon Bedrock", "AWS Lambda", "Amazon S3", "API Gateway", 
     "CloudFront", "CloudFormation", "DynamoDB", "AWS IAM"
   ];
+
+  const activeServices = useMemo(() => {
+    const latestMermaid = extractLatestMermaidCode(messages);
+    if (!latestMermaid) return new Set();
+    return getUsedServicesFromMermaid(latestMermaid);
+  }, [messages]);
 
   useEffect(() => {
     if (isTestMode) {
@@ -400,7 +440,15 @@ function App() {
           <button type="submit" className="send-button" disabled={isLoading || !inputValue.trim()}>Send</button>
         </form>
         <div className="suggestion-chips">
-          {awsServices.map(service => <button key={service} className="chip-button" onClick={() => handleServiceClick(service)}>{service}</button>)}
+          {awsServices.map(service => (
+            <button
+              key={service}
+              className={`chip-button ${activeServices.has(service) ? 'chip-button--used' : 'chip-button--unused'}`}
+              onClick={() => handleServiceClick(service)}
+            >
+              {service}
+            </button>
+          ))}
         </div>
       </footer>
 
