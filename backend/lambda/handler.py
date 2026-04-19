@@ -74,19 +74,30 @@ def send_ws_and_return(apigw_client, connection_id, payload):
 def parse_event_body(event):
     raw_body = event.get("body", "{}")
 
-    if isinstance(raw_body, dict):
-        return raw_body
-
     if raw_body is None:
         return {}
 
-    try:
-        parsed = json.loads(raw_body)
-    except (json.JSONDecodeError, TypeError):
-        return {}
+    if isinstance(raw_body, dict):
+        return raw_body
 
-    return parsed if isinstance(parsed, dict) else {}
+    if event.get("isBase64Encoded") and isinstance(raw_body, str):
+        try:
+            raw_body = base64.b64decode(raw_body).decode("utf-8")
+        except Exception as e:
+            print(f"Failed to decode base64 body: {e}")
+            return {}
 
+    if isinstance(raw_body, str):
+        raw_body = raw_body.strip()
+        if not raw_body:
+            return {}
+        try:
+            return json.loads(raw_body)
+        except json.JSONDecodeError as e:
+            print(f"Invalid JSON body: {e}; raw={raw_body[:300]}")
+            return {}
+            
+    return {}
 
 def normalize_session_id(session_id):
     if not isinstance(session_id, str):
@@ -133,35 +144,6 @@ def build_assistant_message_for_storage(result: dict) -> tuple[str, str | None, 
         return str(result["message"]), None, None
 
     return json.dumps(result), None, None
-def parse_event_body(event):
-    """Parse API Gateway WebSocket event body safely for proxy/non-proxy shapes."""
-    raw_body = event.get("body", "{}")
-
-    if raw_body is None:
-        return {}
-
-    if isinstance(raw_body, dict):
-        return raw_body
-
-    if event.get("isBase64Encoded") and isinstance(raw_body, str):
-        try:
-            raw_body = base64.b64decode(raw_body).decode("utf-8")
-        except Exception as e:
-            print(f"Failed to decode base64 body: {e}")
-            return {}
-
-    if isinstance(raw_body, str):
-        raw_body = raw_body.strip()
-        if not raw_body:
-            return {}
-        try:
-            return json.loads(raw_body)
-        except json.JSONDecodeError as e:
-            print(f"Invalid JSON body: {e}; raw={raw_body[:300]}")
-            return {}
-
-    return {}
-
 
 def proxy_response(status_code=200, body=None):
     """Return a Lambda proxy-compatible response for API Gateway WebSocket integrations."""
