@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import MermaidChart from './MermaidChart'
 import './styles/App.css'
@@ -6,9 +6,11 @@ import './styles/App.css'
 // ==========================================
 // 🚀 MASTER SWITCH: TEST MODE VS LIVE MODE
 // ==========================================
-// Change this to 'false' when the backend team is ready!
-const IS_TEST_MODE = false; 
-const WS_URL = 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev';
+// Defaults to TEST mode unless VITE_TEST_MODE is explicitly set to "false".
+// Example for live mode: VITE_TEST_MODE=false VITE_WS_URL=wss://... npm run dev
+const IS_TEST_MODE = import.meta.env.VITE_TEST_MODE !== 'false'
+const WS_URL =
+  import.meta.env.VITE_WS_URL || 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev'
 
 const getCurrentTime = () => {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -81,14 +83,17 @@ function App() {
 
   // --- UI LOGIC ---
   useEffect(() => {
-    if (!isUserScrolledUp) { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }
-  }, [messages, isLoading]);
+    if (!isUserScrolledUp) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+    }
+  }, [messages, isLoading, isUserScrolledUp]);
 
   const handleScroll = () => {
     const container = chatContainerRef.current;
     if (!container) return;
-    const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
-    setIsUserScrolledUp(distance > 50);
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const nextIsScrolledUp = distanceFromBottom > 50;
+    setIsUserScrolledUp((prev) => (prev === nextIsScrolledUp ? prev : nextIsScrolledUp));
   };
 
   const scrollToBottom = () => { 
@@ -122,7 +127,7 @@ function App() {
         setIsLoading(false);
         setMessages(prev => [...prev, { 
           role: 'assistant', 
-          content: `**Connection Error:** I cannot reach the AWS backend. Please make sure the server is online.`, 
+          content: `**Connection Error:** I cannot reach the AWS backend at \`${WS_URL}\`. If you are developing locally and want mocked responses, enable test mode with \`VITE_TEST_MODE=true\`.`, 
           timestamp: getCurrentTime() 
         }]);
         return;
@@ -191,8 +196,10 @@ function App() {
         return;
       }
       ws.send(JSON.stringify({ 
-        action: "confirmArchitecture", 
-        userInput: "approved",
+        action: "generateCloudFormation", 
+        userInput: "approved architecture",
+        approvedDiagram: "",
+        services: [],
         credentials: awsCredentials
       }));
     }
@@ -207,6 +214,24 @@ function App() {
 
   const handleServiceClick = (service) => setInputValue(`Help me configure ${service}`);
 
+  const markdownComponents = useMemo(
+    () => ({
+      code(props) {
+        const { children, className, ...rest } = props
+        const match = /language-(\w+)/.exec(className || '')
+        if (match && match[1] === 'mermaid') {
+          return <MermaidChart chart={String(children).replace(/\n$/, '')} />
+        }
+        return (
+          <code {...rest} className={className}>
+            {children}
+          </code>
+        )
+      },
+    }),
+    [],
+  )
+
   return (
     <div className="chat-container">
       {messages.length > 0 && <header className="chat-header"><h1>AWS Architect {IS_TEST_MODE && <span style={{fontSize: '12px', color: '#ff9900'}}>[TEST MODE]</span>}</h1></header>}
@@ -216,16 +241,10 @@ function App() {
           {messages.map((msg, index) => (
             <div key={index} className={`message ${msg.role}`}>
               <div className="message-content">
-                <ReactMarkdown components={{
-                  code(props) {
-                    const {children, className, node, ...rest} = props
-                    const match = /language-(\w+)/.exec(className || '')
-                    return match && match[1] === 'mermaid' 
-                      ? <MermaidChart chart={String(children).replace(/\n$/, '')} />
-                      : <code {...rest} className={className}>{children}</code>
-                  }
-                }}>{msg.content}</ReactMarkdown>
-                
+                <ReactMarkdown components={markdownComponents}>
+                  {msg.content}
+                </ReactMarkdown>
+
                 {index === messages.length - 1 && msg.role === 'assistant' && msg.content.includes('```mermaid') && (
                   <div style={{ marginTop: '12px', textAlign: 'right' }}>
                     {/* CHANGED: Now calls handleInitiateDeploy instead of opening modal directly */}
