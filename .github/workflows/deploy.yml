@@ -1,0 +1,130 @@
+name: Deploy to AWS
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      FRONTEND_BUCKET: ${{ vars.FRONTEND_BUCKET }}
+      CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+      BACKEND_LAMBDA_FUNCTION: ${{ vars.BACKEND_LAMBDA_FUNCTION }}
+      PROMPTS_BUCKET: ${{ vars.PROMPTS_BUCKET }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate required deployment config
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+            echo "Missing AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY in repository secrets."
+            exit 1
+          fi
+
+          if [[ -z "${AWS_REGION:-}" ]]; then
+            echo "Missing AWS_REGION in repository variables."
+            exit 1
+          fi
+
+          if [[ -z "${FRONTEND_BUCKET:-}" ]]; then
+            echo "Missing FRONTEND_BUCKET in repository variables."
+            exit 1
+          fi
+
+          if [[ -z "${CLOUDFRONT_DISTRIBUTION_ID:-}" ]]; then
+            echo "Missing CLOUDFRONT_DISTRIBUTION_ID in repository variables."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build frontend
+        run: npm run build --prefix frontend -- --outDir build
+
+      - name: Sync frontend build to S3
+        run: aws s3 sync frontend/build/ "s3://${FRONTEND_BUCKET}/" --delete
+
+      - name: Package backend files for Lambda (if present)
+        id: backend_package
+        run: |
+          set -euo pipefail
+          mkdir -p backend/build
+
+          if ! find backend -type f ! -path "backend/build/*" ! -name "README(Frontend).md" ! -iname "README.md" | grep -q .; then
+            echo "No backend source files found under backend/. Skipping backend deploy."
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ -z "${BACKEND_LAMBDA_FUNCTION:-}" ]]; then
+            echo "BACKEND_LAMBDA_FUNCTION is required when backend source files are present."
+            exit 1
+          fi
+
+          rm -f backend/build/lambda.zip
+          (
+            cd backend
+            zip -rq build/lambda.zip . -x "build/*" ".git/*" "README(Frontend).md" "README.md"
+          )
+
+          echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+
+      - name: Update backend Lambda function
+        if: steps.backend_package.outputs.should_deploy == 'true'
+        run: aws lambda update-function-code --function-name "${BACKEND_LAMBDA_FUNCTION}" --zip-file "fileb://backend/build/lambda.zip" --query 'LastModified' --output text
+
+      - name: Sync prompts to private S3
+        run: |
+          set -euo pipefail
+
+          if [[ ! -d prompts ]]; then
+            echo "prompts/ directory not found. Skipping prompts deploy."
+            exit 0
+          fi
+
+          if ! find prompts -type f ! -iname "README.md" | grep -q .; then
+            echo "No prompt files found in prompts/. Skipping prompts deploy."
+            exit 0
+          fi
+
+          if [[ -z "${PROMPTS_BUCKET:-}" ]]; then
+            echo "PROMPTS_BUCKET is required when prompt files are present."
+            exit 1
+          fi
+
+          aws s3 sync prompts/ "s3://${PROMPTS_BUCKET}/" --delete --exclude "README.md" --exclude "readme.md"
+
+      - name: Invalidate CloudFront cache
+        run: aws cloudfront create-invalidation --distribution-id "${CLOUDFRONT_DISTRIBUTION_ID}" --paths "/*" --query 'Invalidation.Id' --output text
