@@ -94,6 +94,23 @@ const handleSendMessage = (e) => {
     ws.send(JSON.stringify({ action: "sendMessage", userInput: userMessage, services: [] }));
   };
 
+  const handleConfirmArchitecture = () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    
+    setMessages(prev => [...prev, { 
+      role: 'user', 
+      content: "I approve this architecture. Please deploy it.", 
+      timestamp: getCurrentTime() 
+    }]);
+    setIsLoading(true);
+
+    // Send a special action to the backend to trigger Step 7
+    ws.send(JSON.stringify({ 
+      action: "confirmArchitecture", 
+      userInput: "approved" 
+    }));
+  };
+
   const handleServiceClick = (service) => setInputValue(`Help me configure ${service}`);
 
   return (
@@ -114,6 +131,24 @@ const handleSendMessage = (e) => {
                       : <code {...rest} className={className}>{children}</code>
                   }
                 }}>{msg.content}</ReactMarkdown>
+                {index === messages.length - 1 && msg.role === 'assistant' && msg.content.includes('```mermaid') && (
+                  <div style={{ marginTop: '12px', textAlign: 'right' }}>
+                    <button 
+                      onClick={handleConfirmArchitecture} 
+                      style={{
+                        backgroundColor: '#238636', 
+                        color: 'white', 
+                        border: 'none', 
+                        padding: '8px 16px', 
+                        borderRadius: '4px', 
+                        cursor: 'pointer',
+                        fontWeight: 'bold'
+                      }}
+                    >
+                      Confirm & Deploy Architecture
+                    </button>
+                  </div>
+                )}
               </div>
               {msg.timestamp && <div className="message-timestamp">{msg.timestamp}</div>}
             </div>
