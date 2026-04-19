@@ -503,10 +503,19 @@
   border-radius: 12px;
   font-size: 13px;
   font-weight: 600;
-  cursor: default;
-  pointer-events: none;
+  cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.chip-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(170, 59, 255, 0.2), 0 0 0 4px rgba(255, 153, 0, 0.15);
+}
+
+.chip-button--selected {
+  border-color: #ff9900;
+  box-shadow: 0 0 0 1px rgba(255, 153, 0, 0.32);
 }
 
 .service-status-dot {
@@ -541,6 +550,12 @@
   border-color: #2f3233;
   color: #646e70;
   opacity: 0.65;
+}
+
+.chip-button--unused.chip-button--selected {
+  color: #d6dde0;
+  opacity: 1;
+  background: linear-gradient(135deg, rgba(255, 153, 0, 0.14) 0%, rgba(236, 114, 17, 0.14) 100%);
 }
 
 .chip-button:hover {

@@ -62,6 +62,7 @@ function App() {
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [credentialError, setCredentialError] = useState(''); 
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
+  const [selectedServices, setSelectedServices] = useState([]);
   const [awsCredentials, setAwsCredentials] = useState({
     accessKeyId: '',
     secretAccessKey: ''
@@ -201,6 +202,18 @@ function App() {
     e.preventDefault();
     if (!inputValue.trim()) return;
 
+    if (selectedServices.length === 0) {
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: '**Select Services First:** Please select at least one AWS service from the panel before generating an architecture.',
+          timestamp: getCurrentTime(),
+        },
+      ]);
+      return;
+    }
+
     const userMessage = inputValue;
     setMessages(prev => [...prev, { role: 'user', content: userMessage, timestamp: getCurrentTime() }]);
     setInputValue('');
@@ -227,7 +240,7 @@ function App() {
         }]);
         return;
       }
-      ws.send(JSON.stringify({ action: "sendMessage", userInput: userMessage, services: [] }));
+      ws.send(JSON.stringify({ action: "sendMessage", userInput: userMessage, services: selectedServices }));
       startResponseTimeout();
     }
   };
@@ -295,7 +308,7 @@ function App() {
         action: "generateCloudFormation", 
         userInput: "approved architecture",
         approvedDiagram: "",
-        services: [],
+        services: selectedServices,
         credentials: awsCredentials
       }));
       startResponseTimeout();
@@ -307,6 +320,14 @@ function App() {
   const handleCloseModal = () => {
     setIsDeployModalOpen(false);
     setCredentialError('');
+  };
+
+  const handleServiceToggle = (service) => {
+    setSelectedServices(prev => (
+      prev.includes(service)
+        ? prev.filter(item => item !== service)
+        : [...prev, service]
+    ));
   };
 
   const resetUiForModeChange = () => {
@@ -444,19 +465,23 @@ function App() {
         <div className="services-panel" aria-label="AWS services in current diagram">
           <div className="services-panel__header">
             <p className="services-panel__title">AWS Services in Current Diagram</p>
-            <span className="services-panel__count">{activeServices.size} / {awsServices.length} used</span>
+            <span className="services-panel__count">{activeServices.size} used • {selectedServices.length} selected</span>
           </div>
           <div className="services-grid">
             {awsServices.map(service => {
               const isUsed = activeServices.has(service)
+              const isSelected = selectedServices.includes(service)
               return (
-                <div
+                <button
+                  type="button"
                   key={service}
-                  className={`chip-button ${isUsed ? 'chip-button--used' : 'chip-button--unused'}`}
+                  className={`chip-button ${isUsed ? 'chip-button--used' : 'chip-button--unused'} ${isSelected ? 'chip-button--selected' : ''}`}
+                  onClick={() => handleServiceToggle(service)}
+                  aria-pressed={isSelected}
                 >
                   <span className={`service-status-dot ${isUsed ? 'used' : 'unused'}`} aria-hidden="true" />
                   <span className="service-name">{service}</span>
-                </div>
+                </button>
               )
             })}
           </div>
