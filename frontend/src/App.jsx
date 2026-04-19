@@ -22,6 +22,7 @@ function App() {
   // Modal States
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [credentialError, setCredentialError] = useState(''); 
+  const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [awsCredentials, setAwsCredentials] = useState({
     accessKeyId: '',
     secretAccessKey: ''
@@ -29,6 +30,7 @@ function App() {
 
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
+  const modeMenuRef = useRef(null);
 
   const awsServices = [
     "Amazon Bedrock", "AWS Lambda", "Amazon S3", "API Gateway", 
@@ -84,6 +86,17 @@ function App() {
       messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
     }
   }, [messages, isLoading, isUserScrolledUp]);
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (modeMenuRef.current && !modeMenuRef.current.contains(event.target)) {
+        setIsModeMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
 
   const handleScroll = () => {
     const container = chatContainerRef.current;
@@ -211,15 +224,25 @@ function App() {
 
   const handleServiceClick = (service) => setInputValue(`Help me configure ${service}`);
 
-  const handleModeToggle = () => {
+  const resetUiForModeChange = () => {
     setMessages([]);
     setInputValue('');
     setIsLoading(false);
     setIsUserScrolledUp(false);
     setCredentialError('');
+    setIsModeMenuOpen(false);
     setIsDeployModalOpen(false);
     setAwsCredentials({ accessKeyId: '', secretAccessKey: '' });
-    setIsTestMode((prevMode) => !prevMode);
+  };
+
+  const handleModeSelect = (mode) => {
+    const nextIsTestMode = mode === 'test';
+    setIsModeMenuOpen(false);
+
+    if (nextIsTestMode === isTestMode) return;
+
+    resetUiForModeChange();
+    setIsTestMode(nextIsTestMode);
   };
 
   const markdownComponents = useMemo(
@@ -242,27 +265,9 @@ function App() {
 
   return (
     <div className="chat-container">
-      {messages.length > 0 && (
-        <header className="chat-header">
-          <div>
-            <h1>
-              AWS Architect{' '}
-              {isTestMode && <span className="mode-badge">[TEST MODE]</span>}
-            </h1>
-            <p className="chat-subtitle">
-              {isTestMode ? 'Mocked response mode for UI development.' : 'Live mode connected to the backend.'}
-            </p>
-          </div>
-          <button
-            type="button"
-            className={`mode-toggle ${isTestMode ? 'test' : 'live'}`}
-            onClick={handleModeToggle}
-            aria-pressed={isTestMode}
-          >
-            {isTestMode ? 'Switch to Live Mode' : 'Switch to Test Mode'}
-          </button>
-        </header>
-      )}
+      <header className="chat-header">
+        <h1>AWS Architect</h1>
+      </header>
       
       {messages.length > 0 ? (
         <main className="messages-area" ref={chatContainerRef} onScroll={handleScroll}>
@@ -302,42 +307,49 @@ function App() {
       ) : (
         <div className="home-screen">
           <h2>Hi there,</h2>
-          <h1>
-            Where should we start?{' '}
-            {isTestMode && <span className="mode-badge large">[TEST MODE ACTIVE]</span>}
-          </h1>
+           <h1>Where should we start?</h1>
           <p className="home-screen-copy">
             Use test mode to preview the UI with mocked responses or switch to live mode to talk to the backend.
           </p>
-          <button
-            type="button"
-            className={`mode-toggle home ${isTestMode ? 'test' : 'live'}`}
-            onClick={handleModeToggle}
-            aria-pressed={isTestMode}
-          >
-            {isTestMode ? 'Switch to Live Mode' : 'Switch to Test Mode'}
-          </button>
         </div>
       )}
       
       <footer className="input-area">
-        <div className="mode-strip">
-          <span className="mode-label">Mode:</span>
-          <button
-            type="button"
-            className={`mode-toggle ${isTestMode ? 'test' : 'live'}`}
-            onClick={handleModeToggle}
-            aria-pressed={isTestMode}
-          >
-            {isTestMode ? 'Test Mode' : 'Live Mode'}
-          </button>
-          <span className="mode-hint">
-            {isTestMode ? 'Mock responses are enabled.' : 'WebSocket traffic goes to the backend.'}
-          </span>
-        </div>
         {isUserScrolledUp && messages.length > 0 && (
           <button className="scroll-to-bottom" onClick={scrollToBottom}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg></button>
         )}
+        <div className="mode-selector-row" ref={modeMenuRef}>
+          <span className={`active-mode-indicator ${isTestMode ? 'test' : 'dev'}`}>
+            {isTestMode ? '● Test Mode Active' : '● Dev Mode Active'}
+          </span>
+          <button
+            type="button"
+            className="mode-gear-button"
+            onClick={() => setIsModeMenuOpen((prev) => !prev)}
+            aria-label="Open mode selector"
+            aria-expanded={isModeMenuOpen}
+          >
+            ⚙
+          </button>
+          {isModeMenuOpen && (
+            <div className="mode-dropdown">
+              <button
+                type="button"
+                className={`mode-option test ${isTestMode ? 'selected' : ''}`}
+                onClick={() => handleModeSelect('test')}
+              >
+                Test Mode
+              </button>
+              <button
+                type="button"
+                className={`mode-option dev ${!isTestMode ? 'selected' : ''}`}
+                onClick={() => handleModeSelect('dev')}
+              >
+                Dev Mode
+              </button>
+            </div>
+          )}
+        </div>
         <form className="input-form" onSubmit={handleSendMessage}>
           <input type="text" className="chat-input" placeholder="Ask AWS Architect" value={inputValue} onChange={(e) => setInputValue(e.target.value)} disabled={isLoading} />
           <button type="submit" className="send-button" disabled={isLoading || !inputValue.trim()}>Send</button>
