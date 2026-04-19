@@ -4,7 +4,7 @@ import os
 import re
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, WaiterError
 
 from bedrock_client import invoke_bedrock
 from session_store import (
@@ -312,6 +312,39 @@ def get_existing_stack(cfn_client, stack_name: str):
         raise
 
 
+def get_stack_failure_reason(cfn_client, stack_reference: str) -> str:
+    try:
+        events = cfn_client.describe_stack_events(StackName=stack_reference).get("StackEvents", [])
+    except Exception:
+        return "No CloudFormation event details were available."
+
+    for event in events:
+        status = event.get("ResourceStatus", "")
+        if not isinstance(status, str):
+            continue
+        if status.endswith("_FAILED"):
+            resource = event.get("LogicalResourceId") or "unknown resource"
+            reason = event.get("ResourceStatusReason") or "no reason provided"
+            return f"{resource}: {reason}"
+
+    return "No explicit failed resource reason was returned by CloudFormation."
+
+
+def _is_credentials_error(error_text: str) -> bool:
+    lowered = str(error_text or "").lower()
+    return any(
+        token in lowered
+        for token in [
+            "security token",
+            "token included in the request is invalid",
+            "invalidclienttokenid",
+            "expiredtoken",
+            "requestexpired",
+            "credentials",
+        ]
+    )
+
+
 def _stringify_validation_issues(issues: list[dict]) -> str:
     if not issues:
         return ""
@@ -450,10 +483,46 @@ def deploy_cloudformation_stack(cfn_client, stack_name: str, template_body: str)
             OnFailure="DELETE",
         )
         stack_id = create_response.get("StackId")
-        cfn_client.get_waiter("stack_create_complete").wait(
-            StackName=stack_name,
-            WaiterConfig={"Delay": 5, "MaxAttempts": 120},
-        )
+        try:
+            cfn_client.get_waiter("stack_create_complete").wait(
+                StackName=stack_name,
+                WaiterConfig={"Delay": 5, "MaxAttempts": 120},
+            )
+        except WaiterError:
+            latest_stack = get_existing_stack(cfn_client, stack_name)
+            latest_status = (latest_stack or {}).get("StackStatus")
+
+            if not latest_stack:
+                raise RuntimeError(
+                    "Deployment did not reach a successful terminal state in time. "
+                    "Stack is no longer present (likely auto-deleted after failure)."
+                )
+
+            if latest_status in {"CREATE_FAILED", "ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "DELETE_FAILED"}:
+                failure_reason = get_stack_failure_reason(
+                    cfn_client,
+                    (latest_stack or {}).get("StackId") or stack_name,
+                )
+                raise RuntimeError(
+                    "Deployment creation failed. "
+                    f"CloudFormation reason: {failure_reason}"
+                )
+
+            if latest_status in {"DELETE_COMPLETE"}:
+                raise RuntimeError(
+                    "Deployment creation failed and stack was deleted automatically. "
+                    "Review CloudFormation stack events for failure details."
+                )
+
+            if isinstance(latest_status, str) and latest_status.endswith("_IN_PROGRESS"):
+                raise RuntimeError(
+                    "Deployment is still in progress. Check CloudFormation stack events and wait for completion."
+                )
+
+            raise RuntimeError(
+                f"Deployment reached unexpected stack status {latest_status}. "
+                "Review CloudFormation stack events for details."
+            )
         operation = "create"
 
     final_stack = cfn_client.describe_stacks(StackName=stack_name).get("Stacks", [{}])[0]
@@ -506,6 +575,14 @@ def user_facing_deployment_error(error: Exception) -> str:
 
     if "accessdenied" in lowered or "not authorized" in lowered:
         return "Deployment authorization failed. Verify IAM trust policy, permissions, and ExternalID configuration."
+    if "cloudformation reason:" in lowered:
+        reason = message.split("CloudFormation reason:", 1)[-1].strip()
+        return (
+            "Deployment creation failed. "
+            f"CloudFormation reported: {reason}"
+        )
+    if "deployment is still in progress" in lowered:
+        return "Deployment is still in progress. Check CloudFormation stack events and wait for completion."
     if "update_rollback_complete" in lowered:
         return "Deployment update failed and was rolled back. Review CloudFormation stack events in AWS Console and retry after fixes."
     if "create_failed" in lowered or "rollback_complete" in lowered:
@@ -562,6 +639,27 @@ def run_generate_cloudformation_deployment(session_id: str, role_arn: str, deplo
             deployment_inputs["setup_stack_name"],
             deployment_inputs["stack_name"],
         )
+
+    if cleanup_result.get("status") == "failed" and _is_credentials_error(cleanup_result.get("reason", "")):
+        try:
+            refreshed_assume_role = assume_cross_account_role(role_arn, external_id)
+            refreshed_cfn_client = assumed_role_client(
+                "cloudformation",
+                deployment_inputs["region"],
+                refreshed_assume_role,
+            )
+            cleanup_result = cleanup_setup_stack(
+                refreshed_cfn_client,
+                deployment_inputs["setup_stack_name"],
+                deployment_inputs["stack_name"],
+            )
+        except Exception as cleanup_refresh_error:
+            cleanup_result = {
+                "status": "failed",
+                "reason": (
+                    f"Cleanup retry with refreshed credentials failed: {cleanup_refresh_error}"
+                ),
+            }
 
     if deployment_error is not None:
         cleanup_status = cleanup_result.get("status")
