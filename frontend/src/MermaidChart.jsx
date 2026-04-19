@@ -5,6 +5,7 @@ let isMermaidInitialized = false;
 
 const MermaidChart = ({ chart }) => {
   const [svgCode, setSvgCode] = useState('');
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const chartIdRef = useRef(`mermaid-${Math.random().toString(36).slice(2, 9)}`);
 
   useEffect(() => {
@@ -45,9 +46,28 @@ const MermaidChart = ({ chart }) => {
     };
   }, [chart]);
 
-  // dangerouslySetInnerHTML is safe here because we trust the Mermaid library's output
   return (
-    <div className="mermaid-wrapper" dangerouslySetInnerHTML={{ __html: svgCode }} />
+    <>
+      {/* Regular Inline Chart */}
+      <div 
+        className="mermaid-wrapper" 
+        dangerouslySetInnerHTML={{ __html: svgCode }} 
+        onClick={() => svgCode && setIsFullscreen(true)}
+        title="Click to expand"
+      />
+
+      {/* Fullscreen Overlay Modal */}
+      {isFullscreen && (
+        <div className="mermaid-fullscreen-overlay" onClick={() => setIsFullscreen(false)}>
+          <div className="mermaid-fullscreen-content" onClick={(e) => e.stopPropagation()}>
+            <button className="mermaid-close-btn" onClick={() => setIsFullscreen(false)}>
+              ✕
+            </button>
+            <div dangerouslySetInnerHTML={{ __html: svgCode }} />
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
