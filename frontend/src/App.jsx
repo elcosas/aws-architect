@@ -216,6 +216,7 @@ function App() {
   const [selectedServices, setSelectedServices] = useState([]);
   const [activeServiceInfo, setActiveServiceInfo] = useState(null);
   const [chatBodyHeight, setChatBodyHeight] = useState(null);
+  const [inputAreaHeight, setInputAreaHeight] = useState(null);
   const [isResizingChat, setIsResizingChat] = useState(false);
   const [awsCredentials, setAwsCredentials] = useState({
     accessKeyId: '',
@@ -226,11 +227,15 @@ function App() {
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
   const inputAreaRef = useRef(null);
+  const appMetaFooterRef = useRef(null);
   const modeMenuRef = useRef(null);
   const responseTimeoutRef = useRef(null);
 
   const MIN_CHAT_BODY_HEIGHT = 220;
-  const MIN_INPUT_SECTION_HEIGHT = 240;
+  const MIN_INPUT_SECTION_HEIGHT = 220;
+  const RESIZE_HANDLE_HEIGHT = 30;
+  const BASE_INPUT_SECTION_HEIGHT = 300;
+  const MAX_INPUT_SECTION_RATIO = 0.7;
 
   const clearResponseTimeout = () => {
     if (responseTimeoutRef.current) {
@@ -256,7 +261,7 @@ function App() {
 
   const awsServices = [
     "Amazon Bedrock", "AWS Lambda", "Amazon S3", "API Gateway", 
-    "CloudFront", "CloudFormation", "DynamoDB", "AWS IAM"
+    "CloudFront", "DynamoDB", "AWS IAM"
   ];
 
   const activeServices = useMemo(() => {
@@ -374,25 +379,38 @@ function App() {
 
   const resizeChatBody = (clientY) => {
     const appEl = appContainerRef.current
-    const inputEl = inputAreaRef.current
-    if (!appEl || !inputEl || typeof clientY !== 'number') {
+    const metaFooterEl = appMetaFooterRef.current
+    if (!appEl || typeof clientY !== 'number') {
       return
     }
 
     const appRect = appEl.getBoundingClientRect()
     const headerEl = appEl.querySelector('.chat-header')
     const headerHeight = headerEl ? headerEl.getBoundingClientRect().height : 0
-    const availableHeight = appRect.height - headerHeight
+    const metaFooterHeight = metaFooterEl ? metaFooterEl.getBoundingClientRect().height : 0
+
+    const availableHeight = appRect.height - headerHeight - metaFooterHeight - RESIZE_HANDLE_HEIGHT
 
     if (availableHeight <= 0) {
       return
     }
 
     const pointerFromTop = clientY - appRect.top - headerHeight
-    const minHeight = MIN_CHAT_BODY_HEIGHT
-    const maxHeight = Math.max(minHeight, availableHeight - MIN_INPUT_SECTION_HEIGHT)
-    const nextHeight = Math.min(maxHeight, Math.max(minHeight, pointerFromTop))
-    setChatBodyHeight(nextHeight)
+    const minChatHeight = MIN_CHAT_BODY_HEIGHT
+    const maxChatHeight = Math.max(minChatHeight, availableHeight - MIN_INPUT_SECTION_HEIGHT)
+    let nextChatHeight = Math.min(maxChatHeight, Math.max(minChatHeight, pointerFromTop))
+    let nextInputHeight = Math.max(MIN_INPUT_SECTION_HEIGHT, availableHeight - nextChatHeight)
+
+    const maxInputByViewport = Math.floor(appRect.height * MAX_INPUT_SECTION_RATIO)
+    const maxInputHeight = Math.max(MIN_INPUT_SECTION_HEIGHT, maxInputByViewport)
+
+    if (nextInputHeight > maxInputHeight) {
+      nextInputHeight = maxInputHeight
+      nextChatHeight = Math.max(minChatHeight, availableHeight - nextInputHeight)
+    }
+
+    setChatBodyHeight(nextChatHeight)
+    setInputAreaHeight(nextInputHeight)
   }
 
   const startChatResize = (event) => {
@@ -627,6 +645,16 @@ function App() {
     setIsTestMode(nextIsTestMode);
   };
 
+  const controlsScale = useMemo(() => {
+    if (!inputAreaHeight) {
+      return 1
+    }
+
+    const rawScale = inputAreaHeight / BASE_INPUT_SECTION_HEIGHT
+    const clampedScale = Math.min(1.18, Math.max(0.84, rawScale))
+    return Number(clampedScale.toFixed(3))
+  }, [inputAreaHeight])
+
   const markdownComponents = useMemo(
     () => ({
       p(props) {
@@ -835,10 +863,19 @@ function App() {
         onMouseDown={startChatResize}
         onTouchStart={startChatResize}
       >
-        <span className="chat-resize-handle__icon" aria-hidden="true">↕</span>
+        <span className="chat-resize-handle__circle" aria-hidden="true">
+          <span className="chat-resize-handle__icon">↕</span>
+        </span>
       </div>
 
-      <footer ref={inputAreaRef} className="input-area">
+      <footer
+        ref={inputAreaRef}
+        className="input-area"
+        style={{
+          ...(inputAreaHeight ? { height: `${inputAreaHeight}px` } : {}),
+          '--controls-scale': controlsScale,
+        }}
+      >
         {isUserScrolledUp && messages.length > 0 && (
           <button className="scroll-to-bottom" onClick={scrollToBottom}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg></button>
         )}
@@ -879,7 +916,7 @@ function App() {
           <button type="submit" className="send-button" disabled={isLoading || !inputValue.trim()}>Send</button>
         </form>
         <div className="services-panel" aria-label="AWS services in current diagram">
-          <div className="services-grid">
+          <div className={`services-grid ${awsServices.length === 7 ? 'services-grid--seven' : ''}`}>
             {awsServices.map(service => {
               const isUsed = activeServices.has(service)
               const isSelected = selectedServices.includes(service)
@@ -913,7 +950,7 @@ function App() {
         </div>
       </footer>
 
-      <div className="app-meta-footer" aria-label="Application footer">
+      <div ref={appMetaFooterRef} className="app-meta-footer" aria-label="Application footer">
         <span>© 2026 Cloud Weaver</span>
         <span aria-hidden="true">•</span>
         <a href="https://github.com/elcosas/aws-architect" target="_blank" rel="noreferrer">
