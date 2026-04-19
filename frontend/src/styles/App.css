@@ -80,6 +80,51 @@
   --send-btn-end: #d97706;
 }
 
+@keyframes uiFadeInQuick {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes uiPopInBounce {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.94);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes typingReveal {
+  from {
+    max-width: 0;
+    opacity: 0;
+  }
+  to {
+    max-width: 100%;
+    opacity: 1;
+  }
+}
+
+@keyframes typingCaretBlink {
+  0%,
+  100% {
+    border-right-color: transparent;
+  }
+  50% {
+    border-right-color: var(--accent-orange);
+  }
+}
+
 /* --- 1. MAIN CHAT LAYOUT --- */
 .chat-container {
   display: flex;
@@ -198,6 +243,7 @@
   border-bottom: 3px solid var(--header-border);
   box-shadow: 0 4px 16px var(--header-glow), 0 2px 4px rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(10px);
+  animation: uiFadeInQuick 0.45s ease-out both;
 }
 
 .chat-header h1 {
@@ -433,6 +479,8 @@
   font-weight: 700;
   letter-spacing: 0.4px;
   border: 1px solid transparent;
+  animation: uiPopInBounce 0.72s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.16s;
 }
 
 .active-mode-indicator.test {
@@ -458,6 +506,8 @@
   line-height: 1;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  animation: uiPopInBounce 0.72s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.28s;
 }
 
 .mode-gear-button:hover {
@@ -478,6 +528,8 @@
   line-height: 1;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  animation: uiPopInBounce 0.72s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.22s;
 }
 
 .guide-help-button:hover {
@@ -532,6 +584,11 @@
   margin: 16px 0 0;
   color: var(--text-muted);
   line-height: 1.6;
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  max-inline-size: 0;
+  animation: typingReveal 0.44s steps(62, end) 0.68s forwards;
 }
 
 .input-form {
@@ -551,6 +608,8 @@
   font-weight: 500;
   outline: none;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: uiPopInBounce 0.78s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.36s;
 }
 
 .chat-input:focus {
@@ -570,6 +629,8 @@
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 12px rgba(255, 153, 0, 0.3);
   letter-spacing: 0.3px;
+  animation: uiPopInBounce 0.78s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.44s;
 }
 
 .send-button:hover {
@@ -665,6 +726,11 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: -0.5px;
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  max-inline-size: 0;
+  animation: typingReveal 0.32s steps(18, end) 0.14s forwards;
 }
 
 .home-screen h1 {
@@ -673,6 +739,11 @@
   margin: 0;
   font-weight: 800;
   letter-spacing: -1px;
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  max-inline-size: 0;
+  animation: typingReveal 0.4s steps(28, end) 0.38s forwards;
 }
 
 .home-screen__mode-note {
@@ -753,7 +824,16 @@
 
 .service-chip-row {
   position: relative;
+  animation: uiPopInBounce 0.72s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+
+.service-chip-row:nth-child(1) { animation-delay: 0.46s; }
+.service-chip-row:nth-child(2) { animation-delay: 0.54s; }
+.service-chip-row:nth-child(3) { animation-delay: 0.62s; }
+.service-chip-row:nth-child(4) { animation-delay: 0.7s; }
+.service-chip-row:nth-child(5) { animation-delay: 0.78s; }
+.service-chip-row:nth-child(6) { animation-delay: 0.86s; }
+.service-chip-row:nth-child(7) { animation-delay: 0.94s; }
 
 .chip-button {
   display: flex;
@@ -823,6 +903,7 @@
   cursor: pointer;
   z-index: 3;
   transition: border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  animation: uiPopInBounce 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (max-width: 980px) {
@@ -1517,6 +1598,7 @@
   color: var(--text-muted);
   font-size: 12px;
   letter-spacing: 0.2px;
+  animation: uiFadeInQuick 0.45s ease-out 0.1s both;
 }
 
 .app-meta-footer a {
@@ -1784,5 +1866,31 @@
   .chat-header__title-row {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .home-screen h2,
+  .home-screen h1,
+  .home-screen-copy {
+    white-space: normal;
+    max-inline-size: 100%;
+    border-right: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-header,
+  .app-meta-footer,
+  .active-mode-indicator,
+  .guide-help-button,
+  .mode-gear-button,
+  .chat-input,
+  .send-button,
+  .service-chip-row,
+  .service-info-trigger,
+  .home-screen h2,
+  .home-screen h1,
+  .home-screen-copy {
+    animation: none !important;
+    transition: none !important;
   }
 }
