@@ -124,18 +124,43 @@ jobs:
 
       - name: Update backend Lambda function
         if: steps.backend_package.outputs.should_deploy == 'true'
-        run: aws lambda update-function-code --function-name "${BACKEND_LAMBDA_FUNCTION}" --zip-file "fileb://backend/build/lambda.zip" --query 'LastModified' --output text
+        run: |
+          set -euo pipefail
+
+          # Ensure no previous deploy is still updating this function.
+          aws lambda wait function-updated --function-name "${BACKEND_LAMBDA_FUNCTION}"
+
+          aws lambda update-function-code \
+            --function-name "${BACKEND_LAMBDA_FUNCTION}" \
+            --zip-file "fileb://backend/build/lambda.zip" \
+            --query 'LastModified' \
+            --output text
+
+          # Wait for code update completion before any config mutation.
+          aws lambda wait function-updated --function-name "${BACKEND_LAMBDA_FUNCTION}"
 
       - name: Align backend Lambda handler
         if: steps.backend_package.outputs.should_deploy == 'true'
         run: |
           set -euo pipefail
+
           LAMBDA_HANDLER="${BACKEND_LAMBDA_HANDLER:-handler.handler}"
-          aws lambda update-function-configuration \
+          CURRENT_HANDLER="$(aws lambda get-function-configuration \
             --function-name "${BACKEND_LAMBDA_FUNCTION}" \
-            --handler "${LAMBDA_HANDLER}" \
             --query 'Handler' \
-            --output text
+            --output text)"
+
+          if [[ "${CURRENT_HANDLER}" != "${LAMBDA_HANDLER}" ]]; then
+            aws lambda update-function-configuration \
+              --function-name "${BACKEND_LAMBDA_FUNCTION}" \
+              --handler "${LAMBDA_HANDLER}" \
+              --query 'Handler' \
+              --output text
+
+            aws lambda wait function-updated --function-name "${BACKEND_LAMBDA_FUNCTION}"
+          else
+            echo "Handler already set to ${LAMBDA_HANDLER}. Skipping configuration update."
+          fi
 
       - name: Sync prompts to private S3
         run: |
