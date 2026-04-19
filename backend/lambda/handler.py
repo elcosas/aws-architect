@@ -4,6 +4,7 @@ import os
 import re
 
 import boto3
+from botocore.exceptions import ClientError
 
 from bedrock_client import invoke_bedrock
 from session_store import (
@@ -38,6 +39,13 @@ SERVICE_MATCHERS = {
 
 ALLOWED_SERVICE_SET = set(SERVICE_MATCHERS.keys())
 IAM_ROLE_ARN_PATTERN = re.compile(r"^arn:aws(-[a-z]+)?:iam::\d{12}:role\/[A-Za-z0-9+=,.@_\/-]{1,512}$")
+STACK_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9-]{0,127}$")
+REGION_PATTERN = re.compile(r"^[a-z]{2}-[a-z]+-\d$")
+
+DEFAULT_DEPLOY_REGION = "us-east-1"
+DEFAULT_STACK_NAME_PREFIX = "CloudWeaverStack"
+DEFAULT_SETUP_STACK_NAME = "ChatbotConnect"
+MAX_CFN_GENERATION_ATTEMPTS = 3
 
 
 def get_apigw_management_client(event):
@@ -183,6 +191,243 @@ def assume_cross_account_role(role_arn: str, external_id: str):
         RoleSessionName="ChatbotDeployment",
         ExternalId=external_id,
     )
+
+
+def _credentials_from_assume_role(assume_role_response: dict) -> dict:
+    credentials = assume_role_response.get("Credentials", {})
+    return {
+        "aws_access_key_id": credentials.get("AccessKeyId"),
+        "aws_secret_access_key": credentials.get("SecretAccessKey"),
+        "aws_session_token": credentials.get("SessionToken"),
+    }
+
+
+def assumed_role_client(service_name: str, region: str, assume_role_response: dict):
+    return boto3.client(service_name, region_name=region, **_credentials_from_assume_role(assume_role_response))
+
+
+def default_stack_name_for_session(session_id: str) -> str:
+    suffix = re.sub(r"[^A-Za-z0-9]", "", session_id or "")[-8:]
+    if not suffix:
+        suffix = "default"
+    return f"{DEFAULT_STACK_NAME_PREFIX}-{suffix}"
+
+
+def resolve_deployment_inputs(body: dict, session_id: str):
+    region_raw = body.get("region")
+    stack_name_raw = body.get("stackName")
+    setup_stack_name_raw = body.get("setupStackName")
+
+    if region_raw is None or str(region_raw).strip() == "":
+        region = DEFAULT_DEPLOY_REGION
+    elif isinstance(region_raw, str) and REGION_PATTERN.match(region_raw.strip()):
+        region = region_raw.strip()
+    else:
+        return None, "Region must be a valid AWS region format (for example us-east-1)."
+
+    if stack_name_raw is None or str(stack_name_raw).strip() == "":
+        stack_name = default_stack_name_for_session(session_id)
+    elif isinstance(stack_name_raw, str) and STACK_NAME_PATTERN.match(stack_name_raw.strip()):
+        stack_name = stack_name_raw.strip()
+    else:
+        return None, "stackName must start with a letter and contain only letters, numbers, and hyphens (max 128 chars)."
+
+    if setup_stack_name_raw is None or str(setup_stack_name_raw).strip() == "":
+        setup_stack_name = DEFAULT_SETUP_STACK_NAME
+    elif isinstance(setup_stack_name_raw, str) and STACK_NAME_PATTERN.match(setup_stack_name_raw.strip()):
+        setup_stack_name = setup_stack_name_raw.strip()
+    else:
+        return None, "setupStackName must start with a letter and contain only letters, numbers, and hyphens (max 128 chars)."
+
+    return {
+        "region": region,
+        "stack_name": stack_name,
+        "setup_stack_name": setup_stack_name,
+    }, None
+
+
+def _is_stack_not_found_error(error: Exception) -> bool:
+    message = str(error)
+    return "does not exist" in message and "Stack with id" in message
+
+
+def _stringify_validation_issues(issues: list[dict]) -> str:
+    if not issues:
+        return ""
+    return "; ".join(issue.get("message", "Unknown validation issue") for issue in issues)
+
+
+def run_local_cloudformation_validation(template_body: str) -> dict:
+    try:
+        from validation.cloudformation_syntax import validate_cloudformation_syntax
+
+        return validate_cloudformation_syntax(template_body)
+    except Exception as exc:
+        # Keep websocket routes alive even if optional local validator deps are not packaged.
+        print(f"Local CloudFormation validator unavailable, continuing with AWS validation only: {exc}")
+        return {
+            "passed": True,
+            "errors": [],
+            "warnings": [
+                {
+                    "rule": "local_validator_unavailable",
+                    "message": "Local CloudFormation validator unavailable; relied on AWS validate_template only.",
+                }
+            ],
+        }
+
+
+def validate_template_with_aws(cfn_client, template_body: str):
+    try:
+        cfn_client.validate_template(TemplateBody=template_body)
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
+def build_cfn_repair_prompt(
+    base_prompt: str,
+    previous_template: str,
+    local_validation: dict,
+    aws_validation_error: str,
+    attempt: int,
+) -> str:
+    local_errors = _stringify_validation_issues(local_validation.get("errors", []))
+    local_warnings = _stringify_validation_issues(local_validation.get("warnings", []))
+    return (
+        f"{base_prompt}\n\n"
+        f"Repair attempt {attempt}.\n"
+        "The previous CloudFormation YAML failed validation.\n"
+        f"Local syntax errors: {local_errors or 'None'}\n"
+        f"Local syntax warnings: {local_warnings or 'None'}\n"
+        f"AWS validate_template error: {aws_validation_error or 'None'}\n\n"
+        "Return corrected CloudFormation YAML only via the tool output.\n\n"
+        "Previous YAML:\n"
+        f"```yaml\n{previous_template}\n```"
+    )
+
+
+def generate_validated_cloudformation_template(cfn_client, last_assistant_message: str, approved_diagram: str):
+    prompt = build_cfn_prompt(last_assistant_message, approved_diagram)
+    latest_failure = "CloudFormation generation failed."
+
+    for attempt in range(1, MAX_CFN_GENERATION_ATTEMPTS + 1):
+        result = invoke_bedrock(CFN_SYSTEM_PROMPT, prompt, tool_type="cloudformation")
+        if result.get("error"):
+            latest_failure = f"Bedrock generation error (attempt {attempt}): {result.get('error')}"
+            continue
+
+        cloudformation_yaml = str(result.get("cloudformation_yaml", "")).strip()
+        if not cloudformation_yaml:
+            latest_failure = f"Bedrock returned no CloudFormation YAML (attempt {attempt})."
+            continue
+
+        local_validation = run_local_cloudformation_validation(cloudformation_yaml)
+        aws_valid, aws_validation_error = validate_template_with_aws(cfn_client, cloudformation_yaml)
+
+        print(
+            f"CFN validation attempt={attempt} local_passed={local_validation.get('passed')} aws_passed={aws_valid}"
+        )
+
+        if local_validation.get("passed") and aws_valid:
+            return cloudformation_yaml, attempt
+
+        latest_failure = (
+            f"CloudFormation validation failed on attempt {attempt}. "
+            f"Local: {_stringify_validation_issues(local_validation.get('errors', [])) or 'None'}. "
+            f"AWS: {aws_validation_error or 'None'}."
+        )
+        prompt = build_cfn_repair_prompt(
+            build_cfn_prompt(last_assistant_message, approved_diagram),
+            cloudformation_yaml,
+            local_validation,
+            aws_validation_error,
+            attempt,
+        )
+
+    raise RuntimeError(latest_failure)
+
+
+def deploy_cloudformation_stack(cfn_client, stack_name: str, template_body: str):
+    stack_exists = True
+    stack_id = None
+
+    try:
+        describe_response = cfn_client.describe_stacks(StackName=stack_name)
+        stacks = describe_response.get("Stacks", [])
+        if stacks:
+            stack_id = stacks[0].get("StackId")
+    except Exception as exc:
+        if _is_stack_not_found_error(exc):
+            stack_exists = False
+        else:
+            raise
+
+    if not stack_exists:
+        create_response = cfn_client.create_stack(
+            StackName=stack_name,
+            TemplateBody=template_body,
+            Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
+        )
+        stack_id = create_response.get("StackId")
+        cfn_client.get_waiter("stack_create_complete").wait(
+            StackName=stack_name,
+            WaiterConfig={"Delay": 5, "MaxAttempts": 120},
+        )
+        operation = "create"
+    else:
+        try:
+            update_response = cfn_client.update_stack(
+                StackName=stack_name,
+                TemplateBody=template_body,
+                Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
+            )
+            stack_id = update_response.get("StackId") or stack_id
+            cfn_client.get_waiter("stack_update_complete").wait(
+                StackName=stack_name,
+                WaiterConfig={"Delay": 5, "MaxAttempts": 120},
+            )
+            operation = "update"
+        except ClientError as exc:
+            if "No updates are to be performed" in str(exc):
+                operation = "no-op"
+            else:
+                raise
+
+    final_stack = cfn_client.describe_stacks(StackName=stack_name).get("Stacks", [{}])[0]
+    return {
+        "stack_id": final_stack.get("StackId") or stack_id,
+        "operation": operation,
+        "status": final_stack.get("StackStatus"),
+    }
+
+
+def cleanup_setup_stack(cfn_client, setup_stack_name: str, deployed_stack_name: str):
+    if not setup_stack_name:
+        return {"status": "skipped", "reason": "No setup stack name provided."}
+
+    if setup_stack_name == deployed_stack_name:
+        return {
+            "status": "skipped",
+            "reason": "Setup stack name matches deployed stack; skipping cleanup to avoid deleting deployed resources.",
+        }
+
+    try:
+        cfn_client.describe_stacks(StackName=setup_stack_name)
+    except Exception as exc:
+        if _is_stack_not_found_error(exc):
+            return {"status": "not_found"}
+        return {"status": "failed", "reason": str(exc)}
+
+    try:
+        cfn_client.delete_stack(StackName=setup_stack_name)
+        cfn_client.get_waiter("stack_delete_complete").wait(
+            StackName=setup_stack_name,
+            WaiterConfig={"Delay": 5, "MaxAttempts": 120},
+        )
+        return {"status": "deleted"}
+    except Exception as exc:
+        return {"status": "failed", "reason": str(exc)}
 
 
 def is_missing_dynamodb_resource_error(error: Exception) -> bool:
@@ -502,6 +747,11 @@ def handler(event, context):
                 )
                 return send_ws_and_return(apigw_client, connection_id, error_payload)
 
+            deployment_inputs, deployment_error = resolve_deployment_inputs(body, session_id)
+            if deployment_error:
+                error_payload = build_response_payload({"error": deployment_error}, session_id)
+                return send_ws_and_return(apigw_client, connection_id, error_payload)
+
             try:
                 external_id = get_session_external_id(session_id)
                 if not external_id:
@@ -516,9 +766,66 @@ def handler(event, context):
                     )
                     return send_ws_and_return(apigw_client, connection_id, error_payload)
 
-                assume_cross_account_role(role_arn, external_id)
+                assume_role_response = assume_cross_account_role(role_arn, external_id)
+                cfn_client = assumed_role_client(
+                    "cloudformation",
+                    deployment_inputs["region"],
+                    assume_role_response,
+                )
 
-                success_message = "Authentication successful! Beginning deployment..."
+                latest_assistant_context = get_latest_assistant_architecture_context(session_id)
+                if not latest_assistant_context:
+                    error_payload = build_response_payload(
+                        {
+                            "error": (
+                                "No assistant architecture context is available for this session. "
+                                "Generate an architecture first, then retry deployment."
+                            )
+                        },
+                        session_id,
+                    )
+                    return send_ws_and_return(apigw_client, connection_id, error_payload)
+
+                cloudformation_yaml, generation_attempts = generate_validated_cloudformation_template(
+                    cfn_client,
+                    latest_assistant_context.get("assistant_message", ""),
+                    latest_assistant_context.get("mermaid_code", ""),
+                )
+
+                deployment_result = deploy_cloudformation_stack(
+                    cfn_client,
+                    deployment_inputs["stack_name"],
+                    cloudformation_yaml,
+                )
+
+                cleanup_result = cleanup_setup_stack(
+                    cfn_client,
+                    deployment_inputs["setup_stack_name"],
+                    deployment_inputs["stack_name"],
+                )
+
+                cleanup_status = cleanup_result.get("status")
+                cleanup_note = ""
+                if cleanup_status == "failed":
+                    cleanup_note = (
+                        " Deployment succeeded, but setup stack cleanup failed: "
+                        f"{cleanup_result.get('reason', 'unknown reason')}."
+                    )
+                elif cleanup_status == "deleted":
+                    cleanup_note = " Setup stack cleanup succeeded."
+                elif cleanup_status in ("skipped", "not_found"):
+                    cleanup_note = (
+                        " Setup stack cleanup status: "
+                        f"{cleanup_status.replace('_', ' ')}"
+                    )
+
+                success_message = (
+                    f"Deployment succeeded via {deployment_result.get('operation')} in {deployment_inputs['region']} "
+                    f"for stack {deployment_inputs['stack_name']} "
+                    f"(status: {deployment_result.get('status')})."
+                    f" Template validated after {generation_attempts} attempt(s)."
+                    f"{cleanup_note}"
+                )
                 save_message(
                     session_id,
                     "assistant",
@@ -526,7 +833,17 @@ def handler(event, context):
                     message_type="standard",
                 )
 
-                payload = build_response_payload({"message": success_message}, session_id)
+                payload = build_response_payload(
+                    {
+                        "message": success_message,
+                        "stackName": deployment_inputs["stack_name"],
+                        "stackId": deployment_result.get("stack_id"),
+                        "region": deployment_inputs["region"],
+                        "deploymentOperation": deployment_result.get("operation"),
+                        "cleanup": cleanup_result,
+                    },
+                    session_id,
+                )
                 return send_ws_and_return(apigw_client, connection_id, payload)
             except Exception as e:
                 if is_missing_dynamodb_resource_error(e):
@@ -543,7 +860,7 @@ def handler(event, context):
                     return send_ws_and_return(apigw_client, connection_id, error_payload)
 
                 error_payload = build_response_payload(
-                    {"error": f"Authentication failed: {str(e)}"},
+                    {"error": f"CloudFormation deployment failed: {str(e)}"},
                     session_id,
                 )
                 return send_ws_and_return(apigw_client, connection_id, error_payload)
