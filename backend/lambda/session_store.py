@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import time
@@ -11,6 +12,7 @@ DEFAULT_MESSAGES_TABLE = "aws-architect-messages"
 DEFAULT_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
 DEFAULT_CHAT_HISTORY_LIMIT = 20
 ASSISTANT_MERMAID_SEPARATOR = "\n\n<<<MERMAID_DIAGRAM>>>\n\n"
+EXTERNAL_ID_METADATA_KEY = "externalID"
 
 
 dynamodb = boto3.resource("dynamodb")
@@ -74,6 +76,10 @@ def build_message_ts() -> str:
     return f"{int(time.time() * 1000):013d}-{uuid.uuid4().hex[:8]}"
 
 
+def generate_external_id() -> str:
+    return str(uuid.uuid4())
+
+
 def build_assistant_message_content(assistant_text: str, mermaid_code: Optional[str] = None) -> str:
     if not mermaid_code:
         return (assistant_text or "").strip()
@@ -118,6 +124,69 @@ def save_message(
 
     messages_table.put_item(Item=item)
     return item["messageTs"]
+
+
+def _extract_external_id_from_metadata(message_content: str) -> Optional[str]:
+    if not message_content:
+        return None
+
+    try:
+        payload = json.loads(message_content)
+        external_id = payload.get(EXTERNAL_ID_METADATA_KEY)
+        if isinstance(external_id, str) and external_id.strip():
+            return external_id.strip()
+    except Exception:
+        return None
+
+    return None
+
+
+def get_session_external_id(session_id: str) -> Optional[str]:
+    messages_hash_key, messages_range_key = _get_table_keys(messages_table)
+
+    query_args = {
+        "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
+        "Limit": 100,
+    }
+    if messages_range_key:
+        query_args["ScanIndexForward"] = False
+
+    last_evaluated_key = None
+    while True:
+        if last_evaluated_key:
+            query_args["ExclusiveStartKey"] = last_evaluated_key
+
+        response = messages_table.query(**query_args)
+        items = response.get("Items", [])
+
+        for item in items:
+            if item.get("message_type") != "metadata":
+                continue
+
+            external_id = _extract_external_id_from_metadata(item.get("message_content", ""))
+            if external_id:
+                return external_id
+
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if not last_evaluated_key:
+            break
+
+    return None
+
+
+def ensure_session_external_id(session_id: str) -> str:
+    existing_external_id = get_session_external_id(session_id)
+    if existing_external_id:
+        return existing_external_id
+
+    generated_external_id = generate_external_id()
+    save_message(
+        session_id,
+        "system",
+        json.dumps({EXTERNAL_ID_METADATA_KEY: generated_external_id}),
+        message_type="metadata",
+    )
+    return generated_external_id
 
 
 def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> List[Dict]:

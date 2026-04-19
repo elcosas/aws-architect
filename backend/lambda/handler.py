@@ -8,6 +8,7 @@ import boto3
 from bedrock_client import invoke_bedrock
 from session_store import (
     build_assistant_message_content,
+    ensure_session_external_id,
     generate_session_id,
     get_latest_assistant_architecture_context,
     get_recent_chat_messages,
@@ -244,8 +245,10 @@ def handler(event, context):
             try:
                 chat_history = []
                 persistence_available = True
+                external_id = None
 
                 try:
+                    external_id = ensure_session_external_id(session_id)
                     chat_history = get_recent_chat_messages(session_id)
 
                     user_message_for_storage = build_user_message_for_storage(
@@ -298,6 +301,8 @@ def handler(event, context):
                     )
 
                 payload = build_response_payload(result, session_id)
+                if external_id:
+                    payload["externalID"] = external_id
                 return send_ws_and_return(apigw_client, connection_id, payload)
             except Exception as e:
                 error_payload = build_response_payload(
