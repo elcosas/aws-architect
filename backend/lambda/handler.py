@@ -340,6 +340,38 @@ def handler(event, context):
         if route in ("$connect", "$disconnect"):
             return proxy_response(200)
 
+        if route == "getExternalId":
+            session_id = normalize_session_id(body.get("sessionID"))
+            if not session_id:
+                error_payload = build_response_payload(
+                    {"error": "sessionID is required to retrieve ExternalID."}
+                )
+                return send_ws_and_return(apigw_client, connection_id, error_payload)
+
+            try:
+                external_id = ensure_session_external_id(session_id)
+                payload = build_response_payload({"externalID": external_id}, session_id)
+                return send_ws_and_return(apigw_client, connection_id, payload)
+            except Exception as e:
+                if is_missing_dynamodb_resource_error(e):
+                    error_payload = build_response_payload(
+                        {
+                            "error": (
+                                "Message storage is not configured in DynamoDB. "
+                                "Create the messages table (or set MESSAGES_TABLE) before "
+                                "requesting an ExternalID."
+                            )
+                        },
+                        session_id,
+                    )
+                    return send_ws_and_return(apigw_client, connection_id, error_payload)
+
+                error_payload = build_response_payload(
+                    {"error": f"Failed to retrieve ExternalID: {str(e)}"},
+                    session_id,
+                )
+                return send_ws_and_return(apigw_client, connection_id, error_payload)
+
         if route in ("sendMessage", "rejectDiagram"):
             user_input = body.get("userInput", "")
             feedback = body.get("feedback", None)
