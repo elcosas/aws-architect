@@ -12,6 +12,7 @@ export default function DeployModal({
   setRoleArn,
   hasValidRoleArn,
   isFetchingExternalId,
+  isDeploying,
   onConnectAwsAccount,
   onDeployServices
 }) {
@@ -95,8 +96,9 @@ export default function DeployModal({
             type="button"
             className="btn-confirm"
             onClick={onDeployServices}
+            disabled={isDeploying}
           >
-            Deploy Services
+            {isDeploying ? 'Deploying...' : 'Deploy Services'}
           </button>
         </div>
       </div>

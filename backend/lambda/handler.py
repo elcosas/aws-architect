@@ -460,13 +460,31 @@ def deploy_cloudformation_stack(cfn_client, stack_name: str, template_body: str)
             )
 
     if not existing_stack:
-        create_response = cfn_client.create_stack(
-            StackName=stack_name,
-            TemplateBody=template_body,
-            Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
-            OnFailure="DELETE",
-        )
-        stack_id = create_response.get("StackId")
+        try:
+            create_response = cfn_client.create_stack(
+                StackName=stack_name,
+                TemplateBody=template_body,
+                Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
+                OnFailure="DELETE",
+            )
+            stack_id = create_response.get("StackId")
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "")
+            if error_code in {"AlreadyExistsException", "ValidationError"} and "already exists" in str(exc).lower():
+                latest_stack = get_existing_stack(cfn_client, stack_name)
+                latest_status = (latest_stack or {}).get("StackStatus")
+                if isinstance(latest_status, str) and latest_status.endswith("_IN_PROGRESS"):
+                    raise RuntimeError(
+                        f"Deployment is already in progress for stack {stack_name}. "
+                        "Wait for completion and retry if needed."
+                    )
+                if latest_status in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"}:
+                    return {
+                        "stack_id": (latest_stack or {}).get("StackId"),
+                        "operation": "existing",
+                        "status": latest_status,
+                    }
+            raise
         try:
             cfn_client.get_waiter("stack_create_complete").wait(
                 StackName=stack_name,

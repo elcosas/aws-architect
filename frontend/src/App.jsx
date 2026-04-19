@@ -807,6 +807,10 @@ function App() {
   };
 
   const handleGenerateCloudFormationWithArn = () => {
+    if (isLoading) {
+      return;
+    }
+
     setDeployError('');
 
     const normalizedRoleArn = roleArn.trim();
@@ -1218,6 +1222,7 @@ function App() {
         setRoleArn={setRoleArn}
         hasValidRoleArn={hasValidRoleArn}
         isFetchingExternalId={isFetchingExternalId}
+        isDeploying={isLoading}
         onConnectAwsAccount={handleConnectAwsAccount}
         onDeployServices={handleGenerateCloudFormationWithArn}
       />
