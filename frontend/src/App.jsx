@@ -45,6 +45,7 @@ function App() {
       return; 
     }
 
+    console.log(`🌐 Attempting WebSocket connection to ${WS_URL}`);
     const socket = new WebSocket(WS_URL);
     
     socket.onopen = () => console.log('✅ WebSocket Connected!');
@@ -72,12 +73,14 @@ function App() {
     };
 
     socket.onerror = (error) => {
-      console.error("❌ WebSocket Error:", error);
+      console.error(`❌ WebSocket Error while connecting to ${WS_URL}:`, error);
       setIsLoading(false);
     };
 
-    socket.onclose = () => {
-      console.warn("⚠️ WebSocket Disconnected!");
+    socket.onclose = (event) => {
+      console.warn(
+        `⚠️ WebSocket Disconnected (code=${event.code}, reason="${event.reason || 'no reason provided'}", clean=${event.wasClean})`
+      );
       setIsLoading(false); 
     };
 
