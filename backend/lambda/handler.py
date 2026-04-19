@@ -34,9 +34,10 @@ def send_message_to_client(apigw_client, connection_id, message):
         return
 
     try:
+        payload = json.dumps(message) if isinstance(message, dict) else str(message)
         apigw_client.post_to_connection(
             ConnectionId=connection_id,
-            Data=json.dumps(message) if isinstance(message, dict) else message
+            Data=payload.encode("utf-8")
         )
     except apigw_client.exceptions.GoneException:
         print(f"Connection {connection_id} is gone (disconnected)")
@@ -73,6 +74,18 @@ def parse_event_body(event):
 
     return {}
 
+
+def proxy_response(status_code=200, body=None):
+    """Return a Lambda proxy-compatible response for API Gateway WebSocket integrations."""
+    if body is None:
+        body = {"ok": True}
+    if not isinstance(body, str):
+        body = json.dumps(body)
+    return {
+        "statusCode": status_code,
+        "body": body,
+    }
+
 # ---------------------------------------------------------
 # Step 1: AWS Lambda entry point
 # Handles API Gateway WebSocket events and routes incoming
@@ -82,7 +95,6 @@ def handler(event, context):
     request_context = event.get("requestContext", {})
     route = request_context.get("routeKey", "")
     connection_id = request_context.get("connectionId", "")
-    apigw_client = get_apigw_management_client(event)
 
     try:
         body = parse_event_body(event)
@@ -93,11 +105,13 @@ def handler(event, context):
 
         # Handle the initial connection handshake
         if route == "$connect":
-            return {"statusCode": 200}
+            return proxy_response(200)
 
         # Handle the disconnect event
         if route == "$disconnect":
-            return {"statusCode": 200}
+            return proxy_response(200)
+
+        apigw_client = get_apigw_management_client(event)
 
         # Process user messages and diagram rejections
         if route in ("sendMessage", "rejectDiagram"):
@@ -105,13 +119,17 @@ def handler(event, context):
             feedback = body.get("feedback", None)
             selected_services = body.get("services", [])
 
+            if not user_input and not feedback:
+                send_message_to_client(apigw_client, connection_id, {"error": "Missing userInput/feedback"})
+                return proxy_response(200)
+
             # Build the system prompt and invoke Bedrock
             prompt = build_prompt(user_input, feedback, selected_services)
             result = invoke_bedrock(SYSTEM_PROMPT, prompt)
 
             # Send the generated Mermaid JS diagram back through WebSocket
             send_message_to_client(apigw_client, connection_id, result)
-            return {"statusCode": 200}
+            return proxy_response(200)
 
         # Generate CloudFormation based on approved diagram
         if route == "generateCloudFormation":
@@ -124,15 +142,16 @@ def handler(event, context):
 
             # Send the CloudFormation result back through WebSocket
             send_message_to_client(apigw_client, connection_id, result)
-            return {"statusCode": 200}
+            return proxy_response(200)
 
         send_message_to_client(apigw_client, connection_id, {"error": f"Unknown route: {route}"})
-        return {"statusCode": 200}
+        return proxy_response(200)
 
     except Exception as e:
         print(f"Unhandled handler exception: {e}")
+        apigw_client = get_apigw_management_client(event)
         send_message_to_client(apigw_client, connection_id, {"error": f"Internal handler error: {str(e)}"})
-        return {"statusCode": 200}
+        return proxy_response(200)
 
 # ---------------------------------------------------------
 # Step 2: Prompt Construction
