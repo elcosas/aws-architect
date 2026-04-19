@@ -93,6 +93,35 @@ def validate_cloudformation_syntax(template_text: str) -> ValidationResult:
                 "message": "Template root must be a YAML mapping/object.",
             }
         )
+        return {"passed": False, "errors": errors, "warnings": warnings}
+
+    resources = parsed.get("Resources")
+    if not isinstance(resources, dict) or not resources:
+        errors.append(
+            {
+                "rule": "resources_required",
+                "message": "Template must include a non-empty 'Resources' mapping.",
+            }
+        )
+    else:
+        for logical_id, resource in resources.items():
+            if not isinstance(resource, dict):
+                errors.append(
+                    {
+                        "rule": "resource_format",
+                        "message": f"Resource '{logical_id}' must be a mapping/object.",
+                    }
+                )
+                continue
+
+            resource_type = resource.get("Type")
+            if not isinstance(resource_type, str) or not resource_type.strip():
+                errors.append(
+                    {
+                        "rule": "resource_type",
+                        "message": f"Resource '{logical_id}' is missing a valid 'Type' field.",
+                    }
+                )
 
     return {
         "passed": len(errors) == 0,
