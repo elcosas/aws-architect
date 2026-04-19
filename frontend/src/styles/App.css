@@ -59,6 +59,7 @@
   padding: 16px max(20px, calc((100% - 900px) / 2));
   text-align: center;
   display: flex;
+  justify-content: space-between;
   align-items: center;
   justify-content: center;
   min-height: 76px;
@@ -77,6 +78,64 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: -0.5px;
+}
+
+.mode-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+
+.mode-pill--test {
+  background: rgba(170, 59, 255, 0.12);
+  color: #d8b4ff;
+  border-color: rgba(170, 59, 255, 0.35);
+}
+
+.mode-pill--live {
+  background: rgba(35, 134, 86, 0.12);
+  color: #7ee787;
+  border-color: rgba(35, 134, 86, 0.35);
+}
+
+.mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  border: 1px solid #444746;
+  border-radius: 999px;
+  background-color: #131314;
+}
+
+.mode-toggle__button {
+  border: none;
+  background: transparent;
+  color: #879596;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.mode-toggle__button:hover {
+  color: #e3e3e3;
+}
+
+.mode-toggle__button--active {
+  background-color: #FF9900;
+  color: #131314;
+}
+
+.mode-toggle__button--active:hover {
+  color: #131314;
 }
 
 .messages-area {
@@ -378,6 +437,12 @@
   letter-spacing: -1px;
 }
 
+.home-screen__mode-note {
+  margin-top: 14px;
+  color: #879596;
+  font-size: 14px;
+}
+
 /* --- 6. SUGGESTION CHIPS --- */
 .suggestion-chips {
   display: flex;
@@ -400,12 +465,33 @@
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
+.chip-button--used {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.35) 0%, rgba(22, 163, 74, 0.35) 100%);
+  border-color: #22c55e;
+  color: #dcfce7;
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.28), 0 4px 12px rgba(34, 197, 94, 0.18);
+}
+
+.chip-button--unused {
+  background-color: #171819;
+  border-color: #2f3233;
+  color: #646e70;
+  opacity: 0.65;
+}
+
 .chip-button:hover {
   background: linear-gradient(135deg, rgba(170, 59, 255, 0.1) 0%, rgba(255, 153, 0, 0.1) 100%);
   border-color: #FF9900;
   color: #ff9900;
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(255, 153, 0, 0.2);
+}
+
+.chip-button--used:hover {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.28) 0%, rgba(22, 163, 74, 0.28) 100%);
+  border-color: #22c55e;
+  color: #bbf7d0;
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.25);
 }
 
 /* --- 7. MARKDOWN STYLING --- */
@@ -581,4 +667,24 @@
   font-size: 13px;
   margin-bottom: 16px;
   font-weight: 500;
+}
+
+@media (max-width: 640px) {
+  .chat-header {
+    align-items: flex-start;
+  }
+
+  .mode-toggle {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .mode-toggle__button {
+    flex: 1;
+  }
+
+  .chat-header__title-row {
+    width: 100%;
+    justify-content: space-between;
+  }
 }

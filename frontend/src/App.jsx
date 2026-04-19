@@ -49,6 +49,45 @@ const getCurrentTime = () => {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
+const SERVICE_MATCHERS = {
+  'Amazon Bedrock': /\bbedrock\b|br\b/i,
+  'AWS Lambda': /\blambda\b|\bfn\b/i,
+  'Amazon S3': /\bs3\b|simple\s+storage|bucket/i,
+  'API Gateway': /api\s*gateway|apigateway|\bapigw\b|\bgateway\b/i,
+  'CloudFront': /\bcloudfront\b|\bcf\b/i,
+  'CloudFormation': /\bcloudformation\b|\bcfn\b/i,
+  'DynamoDB': /\bdynamodb\b|\bddb\b/i,
+  'AWS IAM': /\biam\b|identity\s+and\s+access\s+management|identity\s+center|sts/i,
+};
+
+const extractLatestAssistantContent = (messages) => {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message?.role !== 'assistant' || typeof message?.content !== 'string') continue;
+    return message.content;
+  }
+  return '';
+};
+
+const getUsedServicesFromContent = (content) => {
+  const activeServices = new Set();
+  if (!content) return activeServices;
+
+  const mermaidMatch = content.match(/```mermaid\s*([\s\S]*?)```/i);
+  const sourceText = (mermaidMatch?.[1] || content)
+    .replace(/[`*_#>-]/g, ' ')
+    .replace(/<br\/?\s*>/gi, ' ')
+    .toLowerCase();
+
+  Object.entries(SERVICE_MATCHERS).forEach(([serviceName, matcher]) => {
+    if (matcher.test(sourceText)) {
+      activeServices.add(serviceName);
+    }
+  });
+
+  return activeServices;
+};
+
 function App() {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
@@ -70,17 +109,49 @@ function App() {
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
   const modeMenuRef = useRef(null);
+  const responseTimeoutRef = useRef(null);
+
+  const clearResponseTimeout = () => {
+    if (responseTimeoutRef.current) {
+      clearTimeout(responseTimeoutRef.current);
+      responseTimeoutRef.current = null;
+    }
+  };
+
+  const startResponseTimeout = () => {
+    clearResponseTimeout();
+    responseTimeoutRef.current = setTimeout(() => {
+      setIsLoading(false);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: '**Timeout Error:** The backend did not respond in time. This is usually an AWS backend issue (Lambda/Bedrock/permissions), not your browser.',
+          timestamp: getCurrentTime(),
+        },
+      ]);
+    }, 45000);
+  };
 
   const awsServices = [
     "Amazon Bedrock", "AWS Lambda", "Amazon S3", "API Gateway", 
     "CloudFront", "CloudFormation", "DynamoDB", "AWS IAM"
   ];
 
+  const activeServices = useMemo(() => {
+    const latestAssistantContent = extractLatestAssistantContent(messages);
+    return getUsedServicesFromContent(latestAssistantContent);
+  }, [messages]);
+
   useEffect(() => {
     if (isTestMode) {
       setWs(null);
       setIsLoading(false);
       console.log('🧪 Running in TEST MODE. WebSocket is disabled.');
+      if (ws) {
+        ws.close();
+        setWs(null);
+      }
       return; 
     }
 
@@ -90,6 +161,7 @@ function App() {
     socket.onopen = () => console.log('✅ WebSocket Connected!');
     
     socket.onmessage = (event) => {
+      clearResponseTimeout();
       setIsLoading(false);
       try {
         const data = JSON.parse(event.data);
@@ -125,6 +197,7 @@ function App() {
 
     socket.onerror = (error) => {
       console.error(`❌ WebSocket Error while connecting to ${WS_URL}:`, error);
+      clearResponseTimeout();
       setIsLoading(false);
     };
 
@@ -132,11 +205,15 @@ function App() {
       console.warn(
         `⚠️ WebSocket Disconnected (code=${event.code}, reason="${event.reason || 'no reason provided'}", clean=${event.wasClean})`
       );
+      clearResponseTimeout();
       setIsLoading(false); 
     };
 
     setWs(socket);
-    return () => socket.close();
+    return () => {
+      clearResponseTimeout();
+      socket.close();
+    };
   }, [isTestMode]);
 
   // --- UI LOGIC ---
@@ -297,6 +374,7 @@ function App() {
         userInput: "Generate CloudFormation for the latest approved architecture.",
         credentials: awsCredentials
       }));
+      startResponseTimeout();
     }
 
     setAwsCredentials({ accessKeyId: '', secretAccessKey: '' });
@@ -442,7 +520,15 @@ function App() {
           <button type="submit" className="send-button" disabled={isLoading || !inputValue.trim()}>Send</button>
         </form>
         <div className="suggestion-chips">
-          {awsServices.map(service => <button key={service} className="chip-button" onClick={() => handleServiceClick(service)}>{service}</button>)}
+          {awsServices.map(service => (
+            <button
+              key={service}
+              className={`chip-button ${activeServices.has(service) ? 'chip-button--used' : 'chip-button--unused'}`}
+              onClick={() => handleServiceClick(service)}
+            >
+              {service}
+            </button>
+          ))}
         </div>
       </footer>
 

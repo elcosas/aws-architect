@@ -1,5 +1,6 @@
 import json
 import os
+import base64
 import boto3
 from bedrock_client import invoke_bedrock
 from session_store import (
@@ -40,9 +41,10 @@ def send_message_to_client(apigw_client, connection_id, message):
         return 
 
     try:
+        payload = json.dumps(message) if isinstance(message, dict) else str(message)
         apigw_client.post_to_connection(
             ConnectionId=connection_id,
-            Data=json.dumps(message) if isinstance(message, dict) else message
+            Data=payload.encode("utf-8")
         )
     except apigw_client.exceptions.GoneException:
         print(f"Connection {connection_id} is gone (disconnected)")
@@ -131,6 +133,46 @@ def build_assistant_message_for_storage(result: dict) -> tuple[str, str | None, 
         return str(result["message"]), None, None
 
     return json.dumps(result), None, None
+def parse_event_body(event):
+    """Parse API Gateway WebSocket event body safely for proxy/non-proxy shapes."""
+    raw_body = event.get("body", "{}")
+
+    if raw_body is None:
+        return {}
+
+    if isinstance(raw_body, dict):
+        return raw_body
+
+    if event.get("isBase64Encoded") and isinstance(raw_body, str):
+        try:
+            raw_body = base64.b64decode(raw_body).decode("utf-8")
+        except Exception as e:
+            print(f"Failed to decode base64 body: {e}")
+            return {}
+
+    if isinstance(raw_body, str):
+        raw_body = raw_body.strip()
+        if not raw_body:
+            return {}
+        try:
+            return json.loads(raw_body)
+        except json.JSONDecodeError as e:
+            print(f"Invalid JSON body: {e}; raw={raw_body[:300]}")
+            return {}
+
+    return {}
+
+
+def proxy_response(status_code=200, body=None):
+    """Return a Lambda proxy-compatible response for API Gateway WebSocket integrations."""
+    if body is None:
+        body = {"ok": True}
+    if not isinstance(body, str):
+        body = json.dumps(body)
+    return {
+        "statusCode": status_code,
+        "body": body,
+    }
 
 # ---------------------------------------------------------
 # Step 1: AWS Lambda entry point
@@ -142,21 +184,32 @@ def handler(event, context):
     route = request_context.get("routeKey", "")
     connection_id = request_context.get("connectionId", "")
 
-    body = parse_event_body(event)
+    try:
+        body = parse_event_body(event)
 
-    # Support deployments where API Gateway uses "$default" plus action in body
-    if route == "$default":
-        route = body.get("action", "$default")
+        # Support deployments where API Gateway uses "$default" plus action in body
+        if route == "$default":
+            route = body.get("action", "$default")
 
-    # Handle the initial connection handshake
-    if route == "$connect":
-        return {"statusCode": 200}
+        # Handle the initial connection handshake
+        if route == "$connect":
+            return proxy_response(200)
 
-    # Handle the disconnect event
-    if route == "$disconnect":
-        return {"statusCode": 200}
+        # Handle the disconnect event
+        if route == "$disconnect":
+            return proxy_response(200)
 
-    apigw_client = get_apigw_management_client(event)
+        apigw_client = get_apigw_management_client(event)
+
+        # Process user messages and diagram rejections
+        if route in ("sendMessage", "rejectDiagram"):
+            user_input = body.get("userInput", "")
+            feedback = body.get("feedback", None)
+            selected_services = body.get("services", [])
+
+            if not user_input and not feedback:
+                send_message_to_client(apigw_client, connection_id, {"error": "Missing userInput/feedback"})
+                return proxy_response(200)
 
     # Process user messages and diagram rejections
     if route in ("sendMessage", "rejectDiagram"):
@@ -256,7 +309,11 @@ def handler(event, context):
             )
             return send_ws_and_return(apigw_client, connection_id, error_payload)
 
-    return {"statusCode": 400, "body": "Unknown route"}
+    except Exception as e:
+        print(f"Unhandled handler exception: {e}")
+        apigw_client = get_apigw_management_client(event)
+        send_message_to_client(apigw_client, connection_id, {"error": f"Internal handler error: {str(e)}"})
+        return proxy_response(200)
 
 # ---------------------------------------------------------
 # Step 2: Prompt Construction
