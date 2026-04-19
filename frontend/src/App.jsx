@@ -3,12 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import MermaidChart from './MermaidChart'
 import './styles/App.css'
 
-// ==========================================
-// 🚀 MASTER SWITCH: TEST MODE VS LIVE MODE
-// ==========================================
-// Defaults to TEST mode unless VITE_TEST_MODE is explicitly set to "false".
-// Example for live mode: VITE_TEST_MODE=false VITE_WS_URL=wss://... npm run dev
-const IS_TEST_MODE = import.meta.env.VITE_TEST_MODE !== 'false'
+const DEFAULT_TEST_MODE = import.meta.env.VITE_TEST_MODE !== 'false'
 const WS_URL =
   import.meta.env.VITE_WS_URL || 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev'
 
@@ -22,6 +17,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [ws, setWs] = useState(null);
+  const [isTestMode, setIsTestMode] = useState(DEFAULT_TEST_MODE);
   
   // Modal States
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
@@ -39,9 +35,10 @@ function App() {
     "CloudFront", "CloudFormation", "DynamoDB", "AWS IAM"
   ];
 
-  // --- WEBSOCKET SETUP (ONLY RUNS IF TEST MODE IS FALSE) ---
   useEffect(() => {
-    if (IS_TEST_MODE) {
+    if (isTestMode) {
+      setWs(null);
+      setIsLoading(false);
       console.log('🧪 Running in TEST MODE. WebSocket is disabled.');
       return; 
     }
@@ -79,7 +76,7 @@ function App() {
 
     setWs(socket);
     return () => socket.close();
-  }, []);
+  }, [isTestMode]);
 
   // --- UI LOGIC ---
   useEffect(() => {
@@ -111,7 +108,7 @@ function App() {
     setInputValue('');
     setIsLoading(true);
 
-    if (IS_TEST_MODE) {
+    if (isTestMode) {
       // 🧪 Fake the backend response
       setTimeout(() => {
         setIsLoading(false);
@@ -165,7 +162,7 @@ function App() {
     }]);
     setIsLoading(true);
 
-    if (IS_TEST_MODE) {
+    if (isTestMode) {
       // 🧪 Fake the deployment response
       setTimeout(() => {
         setIsLoading(false);
@@ -205,6 +202,17 @@ function App() {
 
   const handleServiceClick = (service) => setInputValue(`Help me configure ${service}`);
 
+  const handleModeToggle = () => {
+    setMessages([]);
+    setInputValue('');
+    setIsLoading(false);
+    setIsUserScrolledUp(false);
+    setCredentialError('');
+    setIsDeployModalOpen(false);
+    setAwsCredentials({ accessKeyId: '', secretAccessKey: '' });
+    setIsTestMode((prevMode) => !prevMode);
+  };
+
   const markdownComponents = useMemo(
     () => ({
       code(props) {
@@ -225,7 +233,27 @@ function App() {
 
   return (
     <div className="chat-container">
-      {messages.length > 0 && <header className="chat-header"><h1>AWS Architect {IS_TEST_MODE && <span style={{fontSize: '12px', color: '#ff9900'}}>[TEST MODE]</span>}</h1></header>}
+      {messages.length > 0 && (
+        <header className="chat-header">
+          <div>
+            <h1>
+              AWS Architect{' '}
+              {isTestMode && <span className="mode-badge">[TEST MODE]</span>}
+            </h1>
+            <p className="chat-subtitle">
+              {isTestMode ? 'Mocked response mode for UI development.' : 'Live mode connected to the backend.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            className={`mode-toggle ${isTestMode ? 'test' : 'live'}`}
+            onClick={handleModeToggle}
+            aria-pressed={isTestMode}
+          >
+            {isTestMode ? 'Switch to Live Mode' : 'Switch to Test Mode'}
+          </button>
+        </header>
+      )}
       
       {messages.length > 0 ? (
         <main className="messages-area" ref={chatContainerRef} onScroll={handleScroll}>
@@ -262,10 +290,41 @@ function App() {
           <div ref={messagesEndRef} />
         </main>
       ) : (
-        <div className="home-screen"><h2>Hi there,</h2><h1>Where should we start? {IS_TEST_MODE && <span style={{fontSize: '16px', color: '#ff9900'}}>[TEST MODE ACTIVE]</span>}</h1></div>
+        <div className="home-screen">
+          <h2>Hi there,</h2>
+          <h1>
+            Where should we start?{' '}
+            {isTestMode && <span className="mode-badge large">[TEST MODE ACTIVE]</span>}
+          </h1>
+          <p className="home-screen-copy">
+            Use test mode to preview the UI with mocked responses or switch to live mode to talk to the backend.
+          </p>
+          <button
+            type="button"
+            className={`mode-toggle home ${isTestMode ? 'test' : 'live'}`}
+            onClick={handleModeToggle}
+            aria-pressed={isTestMode}
+          >
+            {isTestMode ? 'Switch to Live Mode' : 'Switch to Test Mode'}
+          </button>
+        </div>
       )}
       
       <footer className="input-area">
+        <div className="mode-strip">
+          <span className="mode-label">Mode:</span>
+          <button
+            type="button"
+            className={`mode-toggle ${isTestMode ? 'test' : 'live'}`}
+            onClick={handleModeToggle}
+            aria-pressed={isTestMode}
+          >
+            {isTestMode ? 'Test Mode' : 'Live Mode'}
+          </button>
+          <span className="mode-hint">
+            {isTestMode ? 'Mock responses are enabled.' : 'WebSocket traffic goes to the backend.'}
+          </span>
+        </div>
         {isUserScrolledUp && messages.length > 0 && (
           <button className="scroll-to-bottom" onClick={scrollToBottom}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg></button>
         )}
