@@ -470,19 +470,21 @@ def cleanup_setup_stack(cfn_client, setup_stack_name: str, deployed_stack_name: 
         }
 
     try:
-        cfn_client.describe_stacks(StackName=setup_stack_name)
+        described = cfn_client.describe_stacks(StackName=setup_stack_name)
+        stack = (described.get("Stacks") or [{}])[0]
+        stack_status = stack.get("StackStatus", "")
+
+        if stack_status == "DELETE_IN_PROGRESS":
+            return {"status": "in_progress"}
     except Exception as exc:
         if _is_stack_not_found_error(exc):
             return {"status": "not_found"}
         return {"status": "failed", "reason": str(exc)}
 
     try:
+        # Start cleanup without blocking on waiter terminal states.
         cfn_client.delete_stack(StackName=setup_stack_name)
-        cfn_client.get_waiter("stack_delete_complete").wait(
-            StackName=setup_stack_name,
-            WaiterConfig={"Delay": 5, "MaxAttempts": 120},
-        )
-        return {"status": "deleted"}
+        return {"status": "delete_requested"}
     except Exception as exc:
         return {"status": "failed", "reason": str(exc)}
 
@@ -550,9 +552,9 @@ def run_generate_cloudformation_deployment(session_id: str, role_arn: str, deplo
             " Deployment succeeded, but setup stack cleanup did not complete. "
             "You can delete ChatbotConnect manually in CloudFormation."
         )
-    elif cleanup_status == "deleted":
-        cleanup_note = " Setup stack cleanup succeeded."
-    elif cleanup_status in ("skipped", "not_found"):
+    elif cleanup_status == "delete_requested":
+        cleanup_note = " Setup stack cleanup was requested and is now in progress."
+    elif cleanup_status in ("skipped", "not_found", "in_progress"):
         cleanup_note = (
             " Setup stack cleanup status: "
             f"{cleanup_status.replace('_', ' ')}"
@@ -640,6 +642,28 @@ def process_deployment_queue_records(records: list[dict]):
             receive_count = int(receive_count_raw)
         except Exception:
             receive_count = 1
+
+        if receive_count > 1:
+            # SQS redelivery can happen after a successful first run. Skip duplicate completion runs.
+            try:
+                external_id = get_session_external_id(session_id)
+                if external_id:
+                    assume_role_response = assume_cross_account_role(role_arn, external_id)
+                    cfn_client = assumed_role_client(
+                        "cloudformation",
+                        deployment_inputs["region"],
+                        assume_role_response,
+                    )
+                    existing_stack = get_existing_stack(cfn_client, deployment_inputs["stack_name"])
+                    existing_status = (existing_stack or {}).get("StackStatus")
+                    if existing_status in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"}:
+                        print(
+                            "Skipping duplicate SQS delivery for "
+                            f"session={session_id}, stack={deployment_inputs['stack_name']}, status={existing_status}"
+                        )
+                        continue
+            except Exception as duplicate_check_error:
+                print(f"Duplicate-delivery check failed; processing retry: {duplicate_check_error}")
 
         if receive_count == 1:
             send_message_to_client(
