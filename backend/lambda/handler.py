@@ -46,6 +46,7 @@ DEFAULT_DEPLOY_REGION = "us-east-1"
 DEFAULT_STACK_NAME_PREFIX = "CloudWeaverStack"
 DEFAULT_SETUP_STACK_NAME = "ChatbotConnect"
 MAX_CFN_GENERATION_ATTEMPTS = 3
+DEPLOYMENT_QUEUE_URL_ENV = "DEPLOYMENT_QUEUE_URL"
 
 
 def get_apigw_management_client(event):
@@ -56,6 +57,12 @@ def get_apigw_management_client(event):
     if not domain_name or not stage:
         return None
 
+    return boto3.client("apigatewaymanagementapi", endpoint_url=f"https://{domain_name}/{stage}")
+
+
+def get_apigw_management_client_for_endpoint(domain_name: str, stage: str):
+    if not domain_name or not stage:
+        return None
     return boto3.client("apigatewaymanagementapi", endpoint_url=f"https://{domain_name}/{stage}")
 
 
@@ -430,6 +437,177 @@ def cleanup_setup_stack(cfn_client, setup_stack_name: str, deployed_stack_name: 
         return {"status": "failed", "reason": str(exc)}
 
 
+def run_generate_cloudformation_deployment(session_id: str, role_arn: str, deployment_inputs: dict):
+    external_id = get_session_external_id(session_id)
+    if not external_id:
+        raise ValueError(
+            "No ExternalID found for this session. Send a chat message first, then retry authentication."
+        )
+
+    assume_role_response = assume_cross_account_role(role_arn, external_id)
+    cfn_client = assumed_role_client(
+        "cloudformation",
+        deployment_inputs["region"],
+        assume_role_response,
+    )
+
+    latest_assistant_context = get_latest_assistant_architecture_context(session_id)
+    if not latest_assistant_context:
+        raise ValueError(
+            "No assistant architecture context is available for this session. "
+            "Generate an architecture first, then retry deployment."
+        )
+
+    cloudformation_yaml, generation_attempts = generate_validated_cloudformation_template(
+        cfn_client,
+        latest_assistant_context.get("assistant_message", ""),
+        latest_assistant_context.get("mermaid_code", ""),
+    )
+
+    deployment_result = deploy_cloudformation_stack(
+        cfn_client,
+        deployment_inputs["stack_name"],
+        cloudformation_yaml,
+    )
+
+    cleanup_result = cleanup_setup_stack(
+        cfn_client,
+        deployment_inputs["setup_stack_name"],
+        deployment_inputs["stack_name"],
+    )
+
+    cleanup_status = cleanup_result.get("status")
+    cleanup_note = ""
+    if cleanup_status == "failed":
+        cleanup_note = (
+            " Deployment succeeded, but setup stack cleanup failed: "
+            f"{cleanup_result.get('reason', 'unknown reason')}."
+        )
+    elif cleanup_status == "deleted":
+        cleanup_note = " Setup stack cleanup succeeded."
+    elif cleanup_status in ("skipped", "not_found"):
+        cleanup_note = (
+            " Setup stack cleanup status: "
+            f"{cleanup_status.replace('_', ' ')}"
+        )
+
+    success_message = (
+        f"Deployment succeeded via {deployment_result.get('operation')} in {deployment_inputs['region']} "
+        f"for stack {deployment_inputs['stack_name']} "
+        f"(status: {deployment_result.get('status')})."
+        f" Template validated after {generation_attempts} attempt(s)."
+        f"{cleanup_note}"
+    )
+    save_message(
+        session_id,
+        "assistant",
+        success_message,
+        message_type="standard",
+    )
+
+    return {
+        "message": success_message,
+        "stackName": deployment_inputs["stack_name"],
+        "stackId": deployment_result.get("stack_id"),
+        "region": deployment_inputs["region"],
+        "deploymentOperation": deployment_result.get("operation"),
+        "cleanup": cleanup_result,
+    }
+
+
+def enqueue_deployment_job(queue_url: str, request_context: dict, payload: dict):
+    sqs_client = boto3.client("sqs")
+    job_payload = {
+        "sessionID": payload.get("sessionID"),
+        "arn": payload.get("arn") or payload.get("roleArn"),
+        "region": payload.get("region"),
+        "stackName": payload.get("stackName"),
+        "setupStackName": payload.get("setupStackName"),
+        "connectionId": request_context.get("connectionId"),
+        "domainName": request_context.get("domainName"),
+        "stage": request_context.get("stage"),
+    }
+    sqs_client.send_message(
+        QueueUrl=queue_url,
+        MessageBody=json.dumps(job_payload),
+    )
+
+
+def process_deployment_queue_records(records: list[dict]):
+    for record in records:
+        try:
+            body = json.loads(record.get("body", "{}"))
+        except Exception:
+            print(f"Skipping SQS record with invalid JSON body: {record.get('body')}")
+            continue
+
+        session_id = normalize_session_id(body.get("sessionID"))
+        role_arn = normalize_role_arn(body.get("arn") or body.get("roleArn"))
+
+        apigw_client = get_apigw_management_client_for_endpoint(
+            body.get("domainName"),
+            body.get("stage"),
+        )
+        connection_id = body.get("connectionId")
+
+        if not session_id or not role_arn:
+            error_payload = build_response_payload(
+                {
+                    "error": (
+                        "Invalid deployment job payload: missing or invalid sessionID/role ARN."
+                    )
+                },
+                session_id,
+            )
+            send_message_to_client(apigw_client, connection_id, error_payload)
+            continue
+
+        deployment_inputs, deployment_error = resolve_deployment_inputs(body, session_id)
+        if deployment_error:
+            error_payload = build_response_payload({"error": deployment_error}, session_id)
+            send_message_to_client(apigw_client, connection_id, error_payload)
+            continue
+
+        send_message_to_client(
+            apigw_client,
+            connection_id,
+            build_response_payload(
+                {
+                    "message": (
+                        "Deployment job started. Generating and validating CloudFormation template now..."
+                    )
+                },
+                session_id,
+            ),
+        )
+
+        try:
+            result_payload = run_generate_cloudformation_deployment(
+                session_id,
+                role_arn,
+                deployment_inputs,
+            )
+            send_message_to_client(
+                apigw_client,
+                connection_id,
+                build_response_payload(result_payload, session_id),
+            )
+        except Exception as exc:
+            if is_missing_dynamodb_resource_error(exc):
+                error_message = (
+                    "Message storage is not configured in DynamoDB. Create the messages table "
+                    "(or set MESSAGES_TABLE) before CloudFormation generation."
+                )
+            else:
+                error_message = f"CloudFormation deployment failed: {str(exc)}"
+
+            send_message_to_client(
+                apigw_client,
+                connection_id,
+                build_response_payload({"error": error_message}, session_id),
+            )
+
+
 def is_missing_dynamodb_resource_error(error: Exception) -> bool:
     message = str(error)
     return "ResourceNotFoundException" in message and "Requested resource not found" in message
@@ -593,6 +771,12 @@ def build_architecture_feedback(analysis: dict, selected_services: list[str], us
 
 
 def handler(event, context):
+    if isinstance(event.get("Records"), list) and event.get("Records"):
+        first_record = event["Records"][0]
+        if first_record.get("eventSource") == "aws:sqs":
+            process_deployment_queue_records(event["Records"])
+            return proxy_response(200, {"processed": len(event["Records"])})
+
     request_context = event.get("requestContext", {})
     route = request_context.get("routeKey", "")
     connection_id = request_context.get("connectionId", "")
@@ -753,97 +937,32 @@ def handler(event, context):
                 return send_ws_and_return(apigw_client, connection_id, error_payload)
 
             try:
-                external_id = get_session_external_id(session_id)
-                if not external_id:
-                    error_payload = build_response_payload(
+                queue_url = os.getenv(DEPLOYMENT_QUEUE_URL_ENV, "").strip()
+
+                if queue_url:
+                    enqueue_deployment_job(queue_url, request_context, body)
+                    queued_message = (
+                        "Deployment request accepted. Job queued and running asynchronously. "
+                        "You will receive a follow-up message when deployment finishes."
+                    )
+                    payload = build_response_payload(
                         {
-                            "error": (
-                                "No ExternalID found for this session. "
-                                "Send a chat message first, then retry authentication."
-                            )
+                            "message": queued_message,
+                            "jobQueued": True,
+                            "stackName": deployment_inputs["stack_name"],
+                            "region": deployment_inputs["region"],
                         },
                         session_id,
                     )
-                    return send_ws_and_return(apigw_client, connection_id, error_payload)
+                    return send_ws_and_return(apigw_client, connection_id, payload)
 
-                assume_role_response = assume_cross_account_role(role_arn, external_id)
-                cfn_client = assumed_role_client(
-                    "cloudformation",
-                    deployment_inputs["region"],
-                    assume_role_response,
-                )
-
-                latest_assistant_context = get_latest_assistant_architecture_context(session_id)
-                if not latest_assistant_context:
-                    error_payload = build_response_payload(
-                        {
-                            "error": (
-                                "No assistant architecture context is available for this session. "
-                                "Generate an architecture first, then retry deployment."
-                            )
-                        },
-                        session_id,
-                    )
-                    return send_ws_and_return(apigw_client, connection_id, error_payload)
-
-                cloudformation_yaml, generation_attempts = generate_validated_cloudformation_template(
-                    cfn_client,
-                    latest_assistant_context.get("assistant_message", ""),
-                    latest_assistant_context.get("mermaid_code", ""),
-                )
-
-                deployment_result = deploy_cloudformation_stack(
-                    cfn_client,
-                    deployment_inputs["stack_name"],
-                    cloudformation_yaml,
-                )
-
-                cleanup_result = cleanup_setup_stack(
-                    cfn_client,
-                    deployment_inputs["setup_stack_name"],
-                    deployment_inputs["stack_name"],
-                )
-
-                cleanup_status = cleanup_result.get("status")
-                cleanup_note = ""
-                if cleanup_status == "failed":
-                    cleanup_note = (
-                        " Deployment succeeded, but setup stack cleanup failed: "
-                        f"{cleanup_result.get('reason', 'unknown reason')}."
-                    )
-                elif cleanup_status == "deleted":
-                    cleanup_note = " Setup stack cleanup succeeded."
-                elif cleanup_status in ("skipped", "not_found"):
-                    cleanup_note = (
-                        " Setup stack cleanup status: "
-                        f"{cleanup_status.replace('_', ' ')}"
-                    )
-
-                success_message = (
-                    f"Deployment succeeded via {deployment_result.get('operation')} in {deployment_inputs['region']} "
-                    f"for stack {deployment_inputs['stack_name']} "
-                    f"(status: {deployment_result.get('status')})."
-                    f" Template validated after {generation_attempts} attempt(s)."
-                    f"{cleanup_note}"
-                )
-                save_message(
+                # Fallback sync path for local/test environments without SQS wiring.
+                result_payload = run_generate_cloudformation_deployment(
                     session_id,
-                    "assistant",
-                    success_message,
-                    message_type="standard",
+                    role_arn,
+                    deployment_inputs,
                 )
-
-                payload = build_response_payload(
-                    {
-                        "message": success_message,
-                        "stackName": deployment_inputs["stack_name"],
-                        "stackId": deployment_result.get("stack_id"),
-                        "region": deployment_inputs["region"],
-                        "deploymentOperation": deployment_result.get("operation"),
-                        "cleanup": cleanup_result,
-                    },
-                    session_id,
-                )
+                payload = build_response_payload(result_payload, session_id)
                 return send_ws_and_return(apigw_client, connection_id, payload)
             except Exception as e:
                 if is_missing_dynamodb_resource_error(e):
