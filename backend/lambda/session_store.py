@@ -76,6 +76,13 @@ def build_message_ts() -> str:
     return f"{int(time.time() * 1000):013d}-{uuid.uuid4().hex[:8]}"
 
 
+def _belongs_to_session(item: Dict, hash_key: str, session_id: str) -> bool:
+    value = item.get(hash_key)
+    if value is None:
+        return False
+    return str(value).strip() == str(session_id).strip()
+
+
 def generate_external_id() -> str:
     return str(uuid.uuid4())
 
@@ -146,6 +153,7 @@ def get_session_external_id(session_id: str) -> Optional[str]:
 
     query_args = {
         "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
+        "ConsistentRead": True,
         "Limit": 100,
     }
     if messages_range_key:
@@ -160,6 +168,9 @@ def get_session_external_id(session_id: str) -> Optional[str]:
         items = response.get("Items", [])
 
         for item in items:
+            if not _belongs_to_session(item, messages_hash_key, session_id):
+                continue
+
             if item.get("message_type") != "metadata":
                 continue
 
@@ -195,6 +206,7 @@ def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> Li
 
     query_args = {
         "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
+        "ConsistentRead": True,
         "Limit": message_limit,
     }
     if messages_range_key:
@@ -210,6 +222,9 @@ def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> Li
 
     chat_messages = []
     for item in items:
+        if not _belongs_to_session(item, messages_hash_key, session_id):
+            continue
+
         if item.get("message_type", "standard") != "standard":
             continue
 
@@ -245,6 +260,7 @@ def get_latest_assistant_architecture_context(session_id: str) -> Optional[Dict]
 
     query_args = {
         "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
+        "ConsistentRead": True,
         "Limit": 50,
     }
     if messages_range_key:
@@ -257,6 +273,9 @@ def get_latest_assistant_architecture_context(session_id: str) -> Optional[Dict]
         items = sorted(items, key=lambda item: item.get("messageTs", ""), reverse=True)
 
     for item in items:
+        if not _belongs_to_session(item, messages_hash_key, session_id):
+            continue
+
         if item.get("message_type", "standard") != "standard":
             continue
 
