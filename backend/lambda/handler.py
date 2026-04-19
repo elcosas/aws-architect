@@ -18,13 +18,30 @@ from session_store import (
 )
 from validation import validate_mermaid_syntax
 
-SYSTEM_PROMPT = open(
-    os.path.join(os.path.dirname(__file__), "system-prompt.txt")
-).read()
+# Caches for prompts to minimize S3 calls during warm starts
+PROMPT_CACHE = {
+    "system-prompt": None,
+    "cfn-prompt": None
+}
 
-CFN_SYSTEM_PROMPT = open(
-    os.path.join(os.path.dirname(__file__), "cfn-prompt.txt")
-).read()
+def get_system_prompt(prompt_type="system-prompt"):
+    """Fetch prompt from S3 or use cached version."""
+    if PROMPT_CACHE[prompt_type] is not None:
+        return PROMPT_CACHE[prompt_type]
+        
+    s3 = boto3.client("s3")
+    bucket = "cloudweaver-prompts-private"
+    key = f"prompts/{prompt_type}.txt"
+    
+    try:
+        response = s3.get_object(Bucket=bucket, Key=key)
+        prompt = response['Body'].read().decode('utf-8')
+        PROMPT_CACHE[prompt_type] = prompt
+        return prompt
+    except Exception as e:
+        print(f"Error fetching {key} from S3: {e}")
+        # Return empty string or raise, handled by Lambda logs
+        raise e
 
 SERVICE_MATCHERS = {
     "Amazon Bedrock": ["bedrock"],
@@ -319,7 +336,8 @@ def generate_validated_cloudformation_template(cfn_client, last_assistant_messag
     latest_failure = "CloudFormation generation failed."
 
     for attempt in range(1, MAX_CFN_GENERATION_ATTEMPTS + 1):
-        result = invoke_bedrock(CFN_SYSTEM_PROMPT, prompt, tool_type="cloudformation")
+        cfn_sys_prompt = get_system_prompt("cfn-prompt")
+        result = invoke_bedrock(cfn_sys_prompt, prompt, tool_type="cloudformation")
         if result.get("error"):
             latest_failure = f"Bedrock generation error (attempt {attempt}): {result.get('error')}"
             continue
@@ -870,7 +888,8 @@ def handler(event, context):
                         raise
 
                 prompt = build_prompt(user_input, feedback, selected_services)
-                result = invoke_bedrock(SYSTEM_PROMPT, prompt, conversation_history=chat_history)
+                sys_prompt = get_system_prompt("system-prompt")
+                result = invoke_bedrock(sys_prompt, prompt, conversation_history=chat_history)
 
                 if result.get("mermaid_code"):
                     result["mermaid_code"] = normalize_mermaid_code(result.get("mermaid_code", ""))
