@@ -3,6 +3,13 @@ import ReactMarkdown from 'react-markdown'
 import MermaidChart from './MermaidChart'
 import './styles/App.css'
 
+// ==========================================
+// 🚀 MASTER SWITCH: TEST MODE VS LIVE MODE
+// ==========================================
+// Change this to 'false' when the backend team is ready!
+const IS_TEST_MODE = false; 
+const WS_URL = 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev';
+
 const getCurrentTime = () => {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
@@ -12,10 +19,11 @@ function App() {
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
+  const [ws, setWs] = useState(null);
   
   // Modal States
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
-  const [credentialError, setCredentialError] = useState(''); // NEW: Error state
+  const [credentialError, setCredentialError] = useState(''); 
   const [awsCredentials, setAwsCredentials] = useState({
     accessKeyId: '',
     secretAccessKey: ''
@@ -28,6 +36,48 @@ function App() {
     "Amazon Bedrock", "AWS Lambda", "Amazon S3", "API Gateway", 
     "CloudFront", "CloudFormation", "DynamoDB", "AWS IAM"
   ];
+
+  // --- WEBSOCKET SETUP (ONLY RUNS IF TEST MODE IS FALSE) ---
+  useEffect(() => {
+    if (IS_TEST_MODE) {
+      console.log('🧪 Running in TEST MODE. WebSocket is disabled.');
+      return; 
+    }
+
+    const socket = new WebSocket(WS_URL);
+    
+    socket.onopen = () => console.log('✅ WebSocket Connected!');
+    
+    socket.onmessage = (event) => {
+      setIsLoading(false);
+      try {
+        const data = JSON.parse(event.data);
+        if (data.mermaid_code) {
+          const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\``;
+          setMessages(prev => [...prev, { role: 'assistant', content: botResponse, timestamp: getCurrentTime() }]);
+        } else if (data.error) {
+          setMessages(prev => [...prev, { role: 'assistant', content: `**Backend Error:** ${data.error}`, timestamp: getCurrentTime() }]);
+        } else if (data.message) {
+          setMessages(prev => [...prev, { role: 'assistant', content: data.message, timestamp: getCurrentTime() }]);
+        }
+      } catch (err) { 
+        console.error("Message parse error:", err); 
+      }
+    };
+
+    socket.onerror = (error) => {
+      console.error("❌ WebSocket Error:", error);
+      setIsLoading(false);
+    };
+
+    socket.onclose = () => {
+      console.warn("⚠️ WebSocket Disconnected!");
+      setIsLoading(false); 
+    };
+
+    setWs(socket);
+    return () => socket.close();
+  }, []);
 
   // --- UI LOGIC ---
   useEffect(() => {
@@ -46,44 +96,60 @@ function App() {
     setIsUserScrolledUp(false); 
   };
 
+  // --- SEND MESSAGE (HANDLES BOTH MODES) ---
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (!inputValue.trim()) return;
-    
+
     const userMessage = inputValue;
     setMessages(prev => [...prev, { role: 'user', content: userMessage, timestamp: getCurrentTime() }]);
     setInputValue('');
     setIsLoading(true);
-    
-    setTimeout(() => {
-      setIsLoading(false);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: "Here is the architecture based on your request:\n\n```mermaid\ngraph LR\nUser --> API[API Gateway]\nAPI --> Lambda[AWS Lambda]\nLambda --> DB[(DynamoDB)]\n```", 
-        timestamp: getCurrentTime() 
-      }]);
-    }, 1500);
+
+    if (IS_TEST_MODE) {
+      // 🧪 Fake the backend response
+      setTimeout(() => {
+        setIsLoading(false);
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: "Here is the architecture based on your request:\n\n```mermaid\ngraph LR\nUser --> API[API Gateway]\nAPI --> Lambda[AWS Lambda]\nLambda --> DB[(DynamoDB)]\n```", 
+          timestamp: getCurrentTime() 
+        }]);
+      }, 1500);
+    } else {
+      // 🌐 Live backend request
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        setIsLoading(false);
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: `**Connection Error:** I cannot reach the AWS backend. Please make sure the server is online.`, 
+          timestamp: getCurrentTime() 
+        }]);
+        return;
+      }
+      ws.send(JSON.stringify({ action: "sendMessage", userInput: userMessage, services: [] }));
+    }
   };
 
-  // 2. DEPLOY FLOW WITH VALIDATION
+  // --- DEPLOY FLOW (HANDLES BOTH MODES) ---
   const handleFinalDeploy = (e) => {
     e.preventDefault();
     
-    // --- NEW: REGEX VALIDATION ---
+    // 1. REGEX VALIDATION (Always runs)
     const accessKeyRegex = /^(AKIA|ASIA)[A-Z0-9]{16}$/;
     const secretKeyRegex = /^[A-Za-z0-9/+=]{40}$/;
 
     if (!accessKeyRegex.test(awsCredentials.accessKeyId)) {
       setCredentialError('Invalid Access Key ID. Must be 20 characters and start with AKIA or ASIA.');
-      return; // Stop the deployment
+      return; 
     }
 
     if (!secretKeyRegex.test(awsCredentials.secretAccessKey)) {
       setCredentialError('Invalid Secret Access Key. Must be exactly 40 characters long.');
-      return; // Stop the deployment
+      return; 
     }
 
-    // If it passes validation, clear errors and proceed!
+    // Validation passed
     setCredentialError('');
     setIsDeployModalOpen(false); 
     
@@ -94,28 +160,47 @@ function App() {
     }]);
     setIsLoading(true);
 
-    setTimeout(() => {
-      setIsLoading(false);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: "🚀 **Deployment Initiated!** Assuming role and sending CloudFormation templates to AWS...", 
-        timestamp: getCurrentTime() 
-      }]);
-    }, 2000);
+    if (IS_TEST_MODE) {
+      // 🧪 Fake the deployment response
+      setTimeout(() => {
+        setIsLoading(false);
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: "🚀 **Deployment Initiated!** Assuming role and sending CloudFormation templates to AWS...", 
+          timestamp: getCurrentTime() 
+        }]);
+      }, 2000);
+    } else {
+      // 🌐 Live deployment request
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        setIsLoading(false);
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: `**Connection Error:** Lost connection to AWS backend.`, 
+          timestamp: getCurrentTime() 
+        }]);
+        return;
+      }
+      ws.send(JSON.stringify({ 
+        action: "confirmArchitecture", 
+        userInput: "approved",
+        credentials: awsCredentials
+      }));
+    }
 
     setAwsCredentials({ accessKeyId: '', secretAccessKey: '' });
   };
 
   const handleCloseModal = () => {
     setIsDeployModalOpen(false);
-    setCredentialError(''); // Clear errors if they cancel
+    setCredentialError('');
   };
 
   const handleServiceClick = (service) => setInputValue(`Help me configure ${service}`);
 
   return (
     <div className="chat-container">
-      {messages.length > 0 && <header className="chat-header"><h1>AWS Architect</h1></header>}
+      {messages.length > 0 && <header className="chat-header"><h1>AWS Architect {IS_TEST_MODE && <span style={{fontSize: '12px', color: '#ff9900'}}>[TEST MODE]</span>}</h1></header>}
       
       {messages.length > 0 ? (
         <main className="messages-area" ref={chatContainerRef} onScroll={handleScroll}>
@@ -158,7 +243,7 @@ function App() {
           <div ref={messagesEndRef} />
         </main>
       ) : (
-        <div className="home-screen"><h2>Hi there,</h2><h1>Where should we start?</h1></div>
+        <div className="home-screen"><h2>Hi there,</h2><h1>Where should we start? {IS_TEST_MODE && <span style={{fontSize: '16px', color: '#ff9900'}}>[TEST MODE ACTIVE]</span>}</h1></div>
       )}
       
       <footer className="input-area">
@@ -174,14 +259,12 @@ function App() {
         </div>
       </footer>
 
-      {/* The AWS Credentials Popup Modal */}
       {isDeployModalOpen && (
         <div className="modal-overlay">
           <div className="modal-content">
             <h3>Deploy Architecture</h3>
             <p>Please provide your AWS credentials so we can assume the role and deploy the CloudFormation template.</p>
             
-            {/* NEW: Error Message Display */}
             {credentialError && (
               <div className="credential-error">
                 {credentialError}
@@ -198,7 +281,7 @@ function App() {
                   value={awsCredentials.accessKeyId}
                   onChange={(e) => {
                     setAwsCredentials({...awsCredentials, accessKeyId: e.target.value});
-                    setCredentialError(''); // Clear error when typing
+                    setCredentialError('');
                   }}
                   placeholder="AKIAIOSFODNN7EXAMPLE" 
                 />
@@ -212,7 +295,7 @@ function App() {
                   value={awsCredentials.secretAccessKey}
                   onChange={(e) => {
                     setAwsCredentials({...awsCredentials, secretAccessKey: e.target.value});
-                    setCredentialError(''); // Clear error when typing
+                    setCredentialError('');
                   }}
                   placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" 
                 />
