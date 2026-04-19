@@ -787,11 +787,16 @@ function App() {
       const quickLink = buildQuickCreateLink(externalId);
       setLatestQuickCreateLink(quickLink);
 
-      const popupWidth = 1200;
-      const popupHeight = 850;
+      // --- NEW DYNAMIC POPUP SIZING ---
+      const maxWidth = window.screen.width * 0.9;
+      const maxHeight = window.screen.height * 0.9;
+      const popupWidth = Math.floor(Math.min(1200, maxWidth));
+      const popupHeight = Math.floor(Math.min(850, maxHeight));
+      
       const left = Math.max(0, Math.floor((window.screen.width - popupWidth) / 2));
       const top = Math.max(0, Math.floor((window.screen.height - popupHeight) / 2));
       const features = `popup=yes,width=${popupWidth},height=${popupHeight},left=${left},top=${top},resizable=yes,scrollbars=yes`;
+      
       const popup = window.open(quickLink, 'cloudweaver-cfn-setup', features);
 
       if (!popup) {
