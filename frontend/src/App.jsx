@@ -8,7 +8,7 @@ import DeployModal from './components/Modals/DeployModal'
 import InputArea from './components/InputArea'
 import './styles/App.css'
 
-const DEFAULT_TEST_MODE = import.meta.env.VITE_TEST_MODE !== 'false'
+const DEFAULT_TEST_MODE = String(import.meta.env.VITE_TEST_MODE || '').toLowerCase() === 'true'
 const WS_URL =
   import.meta.env.VITE_WS_URL || 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev'
 const SESSION_STORAGE_KEY = 'aws-architect.sessionID'
