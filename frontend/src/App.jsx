@@ -8,7 +8,34 @@ const DEFAULT_TEST_MODE = import.meta.env.VITE_TEST_MODE !== 'false'
 const WS_URL =
   import.meta.env.VITE_WS_URL || 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev'
 const SESSION_STORAGE_KEY = 'aws-architect.sessionID'
+const THEME_STORAGE_KEY = 'aws-architect.theme'
 const ASSISTANT_MERMAID_SEPARATOR = '\n\n<<<MERMAID_DIAGRAM>>>\n\n'
+
+const getStoredTheme = () => {
+  if (typeof window === 'undefined') {
+    return 'dark'
+  }
+
+  try {
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
+    return storedTheme === 'light' ? 'light' : 'dark'
+  } catch (error) {
+    console.warn('Unable to read theme from localStorage:', error)
+    return 'dark'
+  }
+}
+
+const storeTheme = (theme) => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+  } catch (error) {
+    console.warn('Unable to write theme to localStorage:', error)
+  }
+}
 
 const getStoredSessionId = () => {
   if (typeof window === 'undefined') {
@@ -180,6 +207,7 @@ function App() {
   const [ws, setWs] = useState(null);
   const [isTestMode, setIsTestMode] = useState(DEFAULT_TEST_MODE);
   const [sessionID, setSessionID] = useState(() => getStoredSessionId());
+  const [theme, setTheme] = useState(() => getStoredTheme());
   
   // Modal States
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
@@ -328,6 +356,14 @@ function App() {
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
+
+  useEffect(() => {
+    storeTheme(theme)
+  }, [theme])
+
+  const handleThemeToggle = () => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
+  }
 
   const handleScroll = () => {
     const container = chatContainerRef.current;
@@ -623,9 +659,21 @@ function App() {
       : null
 
   return (
-    <div className="chat-container">
+    <div className={`chat-container ${theme === 'light' ? 'theme-light' : 'theme-dark'}`}>
       <header className="chat-header">
         <h1>Cloud Weaver</h1>
+        <button
+          type="button"
+          className={`theme-toggle ${theme === 'light' ? 'theme-toggle--light' : 'theme-toggle--dark'}`}
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          onClick={handleThemeToggle}
+        >
+          <span className="theme-toggle__icon theme-toggle__icon--sun" aria-hidden="true">☀</span>
+          <span className="theme-toggle__icon theme-toggle__icon--moon" aria-hidden="true">🌙</span>
+          <span className="theme-toggle__thumb" aria-hidden="true">
+            <span className="theme-toggle__thumb-icon">{theme === 'light' ? '☀' : '🌙'}</span>
+          </span>
+        </button>
       </header>
 
       <div className="chat-body-scroll" ref={chatContainerRef} onScroll={handleScroll}>
