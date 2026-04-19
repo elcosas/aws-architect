@@ -16,7 +16,6 @@ from session_store import (
     get_recent_chat_messages,
     save_message,
 )
-from validation.cloudformation_syntax import validate_cloudformation_syntax
 from validation import validate_mermaid_syntax
 
 SYSTEM_PROMPT = open(
@@ -258,6 +257,26 @@ def _stringify_validation_issues(issues: list[dict]) -> str:
     return "; ".join(issue.get("message", "Unknown validation issue") for issue in issues)
 
 
+def run_local_cloudformation_validation(template_body: str) -> dict:
+    try:
+        from validation.cloudformation_syntax import validate_cloudformation_syntax
+
+        return validate_cloudformation_syntax(template_body)
+    except Exception as exc:
+        # Keep websocket routes alive even if optional local validator deps are not packaged.
+        print(f"Local CloudFormation validator unavailable, continuing with AWS validation only: {exc}")
+        return {
+            "passed": True,
+            "errors": [],
+            "warnings": [
+                {
+                    "rule": "local_validator_unavailable",
+                    "message": "Local CloudFormation validator unavailable; relied on AWS validate_template only.",
+                }
+            ],
+        }
+
+
 def validate_template_with_aws(cfn_client, template_body: str):
     try:
         cfn_client.validate_template(TemplateBody=template_body)
@@ -303,7 +322,7 @@ def generate_validated_cloudformation_template(cfn_client, last_assistant_messag
             latest_failure = f"Bedrock returned no CloudFormation YAML (attempt {attempt})."
             continue
 
-        local_validation = validate_cloudformation_syntax(cloudformation_yaml)
+        local_validation = run_local_cloudformation_validation(cloudformation_yaml)
         aws_valid, aws_validation_error = validate_template_with_aws(cfn_client, cloudformation_yaml)
 
         print(
