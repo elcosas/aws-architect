@@ -8,6 +8,7 @@ const DEFAULT_TEST_MODE = import.meta.env.VITE_TEST_MODE !== 'false'
 const WS_URL =
   import.meta.env.VITE_WS_URL || 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev'
 const SESSION_STORAGE_KEY = 'aws-architect.sessionID'
+const ASSISTANT_MERMAID_SEPARATOR = '\n\n<<<MERMAID_DIAGRAM>>>\n\n'
 
 const getStoredSessionId = () => {
   if (typeof window === 'undefined') {
@@ -148,6 +149,29 @@ const getUsedServicesFromContent = (content) => {
   return activeServices;
 };
 
+const normalizeAssistantMessageContent = (content) => {
+  if (typeof content !== 'string' || !content.includes(ASSISTANT_MERMAID_SEPARATOR)) {
+    return content;
+  }
+
+  const [assistantTextRaw, mermaidRaw] = content.split(ASSISTANT_MERMAID_SEPARATOR, 2);
+  const assistantText = assistantTextRaw?.trim() || '';
+  const mermaidText = mermaidRaw?.trim() || '';
+
+  if (!mermaidText) {
+    return assistantText;
+  }
+
+  const hasMermaidFence = /```mermaid\s*[\s\S]*```/i.test(mermaidText);
+  const mermaidBlock = hasMermaidFence ? mermaidText : `\`\`\`mermaid\n${mermaidText}\n\`\`\``;
+
+  if (!assistantText) {
+    return mermaidBlock;
+  }
+
+  return `${assistantText}\n\n${mermaidBlock}`;
+};
+
 function App() {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
@@ -253,7 +277,11 @@ function App() {
         } else if (data.error) {
           setMessages(prev => [...prev, { role: 'assistant', content: `**Backend Error:** ${data.error}`, timestamp: getCurrentTime() }]);
         } else if (data.message) {
-          setMessages(prev => [...prev, { role: 'assistant', content: data.message, timestamp: getCurrentTime() }]);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: normalizeAssistantMessageContent(data.message),
+            timestamp: getCurrentTime(),
+          }]);
         } else {
           console.log('Received message from backend:', data);
         }

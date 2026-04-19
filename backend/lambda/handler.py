@@ -2,13 +2,12 @@ import base64
 import json
 import os
 import re
-from typing import Optional, Tuple
 
 import boto3
 
 from bedrock_client import invoke_bedrock
 from session_store import (
-    ensure_session,
+    build_assistant_message_content,
     generate_session_id,
     get_latest_assistant_architecture_context,
     get_recent_chat_messages,
@@ -101,35 +100,26 @@ def build_user_message_for_storage(user_input: str, feedback: str = None, select
     return "\n".join(message_parts)
 
 
-def build_assistant_message_for_storage(result: dict) -> Tuple[str, Optional[str], Optional[str]]:
+def build_assistant_message_for_storage(result: dict) -> str:
     if not isinstance(result, dict):
-        return str(result), None, None
+        return str(result)
 
     mermaid_code = result.get("mermaid_code")
     if mermaid_code:
-        message_parts = [f"```mermaid\n{mermaid_code}\n```"]
-
-        architecture_reasoning = (result.get("architecture_reasoning") or "").strip()
-        if architecture_reasoning:
-            message_parts.append(f"Architecture reasoning: {architecture_reasoning}")
-
-        feedback = (result.get("feedback") or "").strip()
-        if feedback:
-            message_parts.append(feedback)
-
-        return "\n\n".join(message_parts), mermaid_code, None
+        assistant_text = (result.get("feedback") or result.get("architecture_reasoning") or "").strip()
+        return build_assistant_message_content(assistant_text, mermaid_code)
 
     cloudformation_yaml = result.get("cloudformation_yaml")
     if cloudformation_yaml:
-        return f"```yaml\n{cloudformation_yaml}\n```", None, cloudformation_yaml
+        return "CloudFormation template generated."
 
     if result.get("error"):
-        return f"Backend Error: {result['error']}", None, None
+        return f"Backend Error: {result['error']}"
 
     if result.get("message"):
-        return str(result["message"]), None, None
+        return str(result["message"])
 
-    return json.dumps(result), None, None
+    return json.dumps(result)
 
 
 def parse_event_body(event):
@@ -370,7 +360,6 @@ def handler(event, context):
                 persistence_available = True
 
                 try:
-                    ensure_session(session_id)
                     chat_history = get_recent_chat_messages(session_id)
 
                     user_message_for_storage = build_user_message_for_storage(
@@ -378,12 +367,17 @@ def handler(event, context):
                         feedback,
                         selected_services,
                     )
-                    save_message(session_id, "user", user_message_for_storage)
+                    save_message(
+                        session_id,
+                        "user",
+                        user_message_for_storage,
+                        message_type="standard",
+                    )
                 except Exception as persistence_error:
                     if is_missing_dynamodb_resource_error(persistence_error):
                         persistence_available = False
                         print(
-                            "Session persistence unavailable (missing DynamoDB table). "
+                            "Message persistence unavailable (missing DynamoDB table). "
                             "Continuing in stateless mode for this request."
                         )
                     else:
@@ -416,13 +410,12 @@ def handler(event, context):
                         )
 
                 if persistence_available:
-                    assistant_content, mermaid_code, cloudformation_yaml = build_assistant_message_for_storage(result)
+                    assistant_content = build_assistant_message_for_storage(result)
                     save_message(
                         session_id,
                         "assistant",
                         assistant_content,
-                        mermaid_code=mermaid_code,
-                        cloudformation_yaml=cloudformation_yaml,
+                        message_type="standard",
                     )
 
                 payload = build_response_payload(result, session_id)
@@ -443,7 +436,6 @@ def handler(event, context):
                 return send_ws_and_return(apigw_client, connection_id, error_payload)
 
             try:
-                ensure_session(session_id)
                 architecture_context = get_latest_assistant_architecture_context(session_id)
                 if not architecture_context:
                     error_payload = build_response_payload(
@@ -460,7 +452,12 @@ def handler(event, context):
                 deployment_request_message = body.get(
                     "userInput", "Generate CloudFormation for the latest approved architecture."
                 )
-                save_message(session_id, "user", deployment_request_message)
+                save_message(
+                    session_id,
+                    "user",
+                    deployment_request_message,
+                    message_type="standard",
+                )
 
                 prompt = build_cfn_prompt(
                     architecture_context["assistant_message"],
@@ -468,12 +465,12 @@ def handler(event, context):
                 )
                 result = invoke_bedrock(CFN_SYSTEM_PROMPT, prompt, tool_type="cloudformation")
 
-                assistant_content, _, cloudformation_yaml = build_assistant_message_for_storage(result)
+                assistant_content = build_assistant_message_for_storage(result)
                 save_message(
                     session_id,
                     "assistant",
                     assistant_content,
-                    cloudformation_yaml=cloudformation_yaml,
+                    message_type="standard",
                 )
 
                 payload = build_response_payload(result, session_id)
@@ -483,9 +480,9 @@ def handler(event, context):
                     error_payload = build_response_payload(
                         {
                             "error": (
-                                "Session storage is not configured in DynamoDB. "
-                                "Create the sessions/messages tables (or set SESSIONS_TABLE and "
-                                "MESSAGES_TABLE) before CloudFormation generation."
+                                "Message storage is not configured in DynamoDB. "
+                                "Create the messages table (or set MESSAGES_TABLE) before "
+                                "CloudFormation generation."
                             )
                         },
                         session_id,
