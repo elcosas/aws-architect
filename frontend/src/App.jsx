@@ -1,17 +1,24 @@
 import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
-import MermaidChart from './MermaidChart' // NEW: Import our chart component
+import MermaidChart from './MermaidChart'
 import './styles/App.css'
 
 const getCurrentTime = () => {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
+// ⚠️ IMPORTANT: Ask your teammate for the real API Gateway WebSocket URL and paste it here!
+const WS_URL = 'wss://YOUR_API_GATEWAY_ID.execute-api.YOUR_[REGION.amazonaws.com/production](https://REGION.amazonaws.com/production)';
+
 function App() {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
+  
+  // NEW: We need a state to hold the active WebSocket connection
+  const [ws, setWs] = useState(null);
+  
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
 
@@ -19,6 +26,59 @@ function App() {
     "Amazon Bedrock", "AWS Lambda", "Amazon S3", "API Gateway", 
     "CloudFront", "CloudFormation", "DynamoDB", "AWS IAM"
   ];
+
+  // NEW: Initialize the WebSocket connection when the app loads
+  useEffect(() => {
+    const socket = new WebSocket(WS_URL);
+
+    socket.onopen = () => {
+      console.log('✅ WebSocket Connected!');
+    };
+
+    // This runs whenever your Lambda/Bedrock sends a message back!
+    socket.onmessage = (event) => {
+      setIsLoading(false); // Turn off the typing indicator
+      
+      try {
+        const data = JSON.parse(event.data);
+
+        // Scenario 1: Success! We got Mermaid code from the backend
+        if (data.mermaid_code) {
+          // We wrap their raw mermaid code in markdown backticks so our parser catches it
+          const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\``;
+          
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: botResponse, 
+            timestamp: getCurrentTime() 
+          }]);
+        } 
+        // Scenario 2: Something went wrong on the backend
+        else if (data.error) {
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: `**Backend Error:** ${data.error}`, 
+            timestamp: getCurrentTime() 
+          }]);
+        }
+      } catch (err) {
+        console.error("Failed to parse incoming WebSocket message:", err);
+      }
+    };
+
+    socket.onerror = (error) => {
+      console.error("❌ WebSocket Error:", error);
+      setIsLoading(false);
+    };
+
+    // Save the socket in state so we can use it to send messages later
+    setWs(socket);
+
+    // Cleanup: Close the connection if the user leaves the page
+    return () => {
+      socket.close();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isUserScrolledUp) {
@@ -38,41 +98,27 @@ function App() {
     setIsUserScrolledUp(false);
   };
 
-  const handleSendMessage = async (e) => {
+  // CHANGED: We now send the real JSON payload to the WebSocket
+  const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || !ws) return;
 
     const userMessage = inputValue;
+    
+    // Add user message to screen
     setMessages(prev => [...prev, { role: 'user', content: userMessage, timestamp: getCurrentTime() }]);
     setInputValue('');
     setIsLoading(true);
 
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1000)); 
-      
-      // CHANGED: We added a real Mermaid flowchart to the bot's response!
-      const botResponse = `I've processed your request. Here is the **AWS Serverless Architecture**:
+    // Construct the exact JSON payload your teammate requested
+    const requestPayload = {
+      action: "sendMessage",
+      userInput: userMessage,
+      services: [] // Leaving empty for now, can be populated if you build a UI for selecting services
+    };
 
-\`\`\`mermaid
-graph TD;
-    Client-->|HTTPS| APIGateway;
-    APIGateway-->|Triggers| Lambda;
-    Lambda-->|Reads/Writes| DynamoDB;
-    Lambda-->|Stores Files| S3;
-\`\`\`
-
-Let me know if you want to tweak this!`;
-
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: botResponse,
-        timestamp: getCurrentTime()
-      }]);
-    } catch (error) {
-      console.error("Error talking to backend:", error);
-    } finally {
-      setIsLoading(false);
-    }
+    // Fire it off to API Gateway!
+    ws.send(JSON.stringify(requestPayload));
   }
 
   const handleServiceClick = (service) => {
@@ -94,18 +140,14 @@ Let me know if you want to tweak this!`;
             <div key={index} className={`message ${msg.role}`}>
               <div className="message-content">
                 
-                {/* CHANGED: We tell ReactMarkdown how to handle <code> tags */}
                 <ReactMarkdown
                   components={{
                     code(props) {
                       const {children, className, node, ...rest} = props
-                      // Check if the code block is labeled as "mermaid"
                       const match = /language-(\w+)/.exec(className || '')
                       if (match && match[1] === 'mermaid') {
-                        // If it is, render our Chart instead of text!
                         return <MermaidChart chart={String(children).replace(/\n$/, '')} />
                       }
-                      // Otherwise, just render it as a normal gray code block
                       return <code {...rest} className={className}>{children}</code>
                     }
                   }}
