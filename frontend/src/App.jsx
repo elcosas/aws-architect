@@ -19,6 +19,7 @@ const IAM_ROLE_ARN_PATTERN = /^arn:aws(-[a-z]+)?:iam::\d{12}:role\/[A-Za-z0-9+=,
 const DEFAULT_DEPLOY_REGION = 'us-east-1'
 const DEFAULT_DEPLOY_STACK_NAME_PREFIX = 'CloudWeaverStack'
 const DEFAULT_SETUP_STACK_NAME = 'ChatbotConnect'
+const HOME_ROTATING_VERBS = ['building', 'architecting', 'developing', 'scaling', 'optimizing', 'deploying']
 
 const getStoredTheme = () => {
   if (typeof window === 'undefined') {
@@ -244,6 +245,22 @@ function App() {
   const [inputAreaHeight, setInputAreaHeight] = useState(null);
   const [isResizingChat, setIsResizingChat] = useState(false);
   const [isMobileServicesOpen, setIsMobileServicesOpen] = useState(false);
+  const [homeVerbIndex, setHomeVerbIndex] = useState(0);
+
+  useEffect(() => {
+    const finalIndex = HOME_ROTATING_VERBS.length - 1
+    const intervalId = window.setInterval(() => {
+      setHomeVerbIndex((prev) => {
+        if (prev >= finalIndex) {
+          window.clearInterval(intervalId)
+          return prev
+        }
+        return prev + 1
+      })
+    }, 1800)
+
+    return () => window.clearInterval(intervalId)
+  }, [])
 
   const simulateStreaming = (fullText, analysis) => {
     setIsLoading(false);
@@ -1024,10 +1041,17 @@ function App() {
           </main>
         ) : (
           <div className="home-screen">
-            <h2>Hi there,</h2>
+            <h2>
+              Let&apos;s start
+              <span className="home-screen__verb-window" aria-live="polite" aria-atomic="true">
+                <span key={HOME_ROTATING_VERBS[homeVerbIndex]} className="home-screen__rolling-verb">
+                  {HOME_ROTATING_VERBS[homeVerbIndex]}
+                </span>
+              </span>
+            </h2>
             <h1>Where should we start?</h1>
             <p className="home-screen-copy">
-              Use test mode to preview the UI with mocked responses or switch to live mode to talk to the backend.
+              Describe your app, traffic, data, and constraints. Cloud Weaver will propose a high-level AWS architecture, generate a diagram, and help you iterate toward a deployable plan.
             </p>
           </div>
         )}

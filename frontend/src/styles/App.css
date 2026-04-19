@@ -733,6 +733,24 @@
   40% { transform: scale(1); }
 }
 
+@keyframes slotVerbRoll {
+  0% {
+    opacity: 0;
+    transform: translateY(-90%);
+    filter: blur(2px);
+  }
+  72% {
+    opacity: 1;
+    transform: translateY(8%);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
 /* --- 5. HOME SCREEN --- */
 .home-screen {
   flex: 1;
@@ -757,6 +775,37 @@
   white-space: nowrap;
   max-inline-size: 0;
   animation: typingReveal 0.32s steps(18, end) 0.14s forwards;
+}
+
+.home-screen__verb-window {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 11ch;
+  margin-left: 8px;
+  overflow: hidden;
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.85), rgba(170, 59, 255, 0.9));
+  box-shadow: 0 6px 18px rgba(124, 58, 237, 0.3);
+}
+
+.home-screen__rolling-verb {
+  display: inline-block;
+  color: #0b1220;
+  -webkit-text-fill-color: currentColor;
+  font-weight: 800;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+  will-change: transform, opacity, filter;
+  animation: slotVerbRoll 0.44s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.theme-light .home-screen__rolling-verb {
+  color: #ffffff;
+}
+
+.theme-dark .home-screen__rolling-verb {
+  color: #000000;
 }
 
 .home-screen h1 {
