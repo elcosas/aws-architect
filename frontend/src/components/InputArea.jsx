@@ -39,7 +39,7 @@ const InputArea = ({
       )}
       <div className="mode-selector-row" ref={modeMenuRef}>
         <span className={`active-mode-indicator ${isTestMode ? 'test' : 'dev'}`}>
-          {isTestMode ? '● Test Mode Active' : '● Dev Mode Active'}
+            {isTestMode ? '● Test Mode Active' : '● Default Mode Active'}
         </span>
         <button
           type="button"
@@ -72,7 +72,7 @@ const InputArea = ({
               className={`mode-option dev ${!isTestMode ? 'selected' : ''}`}
               onClick={() => handleModeSelect('dev')}
             >
-              Dev Mode
+              Default Mode
             </button>
           </div>
         )}
