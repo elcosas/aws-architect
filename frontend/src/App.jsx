@@ -717,6 +717,7 @@ function App() {
       sessionID: sessionID || null,
       userInput: 'Generate CloudFormation for the latest approved architecture.',
       services: selectedServices,
+      arn: normalizedRoleArn,
       roleArn: normalizedRoleArn,
     }));
     startResponseTimeout();
