@@ -125,6 +125,26 @@
   }
 }
 
+@keyframes popupOverlayFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes popupRiseAndSettle {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.995);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
 /* --- 1. MAIN CHAT LAYOUT --- */
 .chat-container {
   display: flex;
@@ -243,7 +263,7 @@
   border-bottom: 3px solid var(--header-border);
   box-shadow: 0 4px 16px var(--header-glow), 0 2px 4px rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(10px);
-  animation: uiFadeInQuick 0.45s ease-out both;
+  animation: uiFadeInQuick 0.66s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
 .chat-header h1 {
@@ -948,6 +968,8 @@
   padding: 24px;
   overflow-y: auto;
   z-index: 9999;
+  animation: popupOverlayFadeIn 0.66s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  will-change: opacity;
 }
 
 .service-info-card {
@@ -962,6 +984,10 @@
   padding: 32px 32px 24px;
   margin: auto;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6), 0 8px 20px rgba(170, 59, 255, 0.2);
+  animation: popupRiseAndSettle 0.66s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 .service-info-docs {
@@ -1130,6 +1156,8 @@
   padding: 24px;
   overflow-y: auto;
   z-index: 9999;
+  animation: popupOverlayFadeIn 0.66s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  will-change: opacity;
 }
 
 .guide-card {
@@ -1144,6 +1172,10 @@
   padding: 28px 28px 20px;
   margin: auto;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6), 0 8px 20px rgba(170, 59, 255, 0.2);
+  animation: popupRiseAndSettle 0.66s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 .guide-card h3 {
@@ -1395,6 +1427,8 @@
   z-index: 1000;
   backdrop-filter: blur(4px);
   padding: 40px;
+  animation: popupOverlayFadeIn 0.66s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  will-change: opacity;
 }
 
 .mermaid-fullscreen-content {
@@ -1411,6 +1445,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  animation: popupRiseAndSettle 0.66s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 /* TARGET THE SVG DIRECTLY TO STRIP MERMAIDS STYLES */
@@ -1466,6 +1504,8 @@
   justify-content: center;
   z-index: 100;
   backdrop-filter: blur(2px);
+  animation: popupOverlayFadeIn 0.66s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  will-change: opacity;
 }
 
 .modal-content {
@@ -1476,6 +1516,10 @@
   max-width: 400px;
   padding: 24px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(170, 59, 255, 0.1);
+  animation: popupRiseAndSettle 0.66s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 .modal-content h3 {
@@ -1597,7 +1641,7 @@
   color: var(--text-muted);
   font-size: 12px;
   letter-spacing: 0.2px;
-  animation: uiFadeInQuick 0.45s ease-out 0.1s both;
+  animation: uiFadeInQuick 0.66s cubic-bezier(0.22, 0.61, 0.36, 1) 0.08s both;
 }
 
 .app-meta-footer a {
@@ -1888,7 +1932,15 @@
   .service-info-trigger,
   .home-screen h2,
   .home-screen h1,
-  .home-screen-copy {
+  .home-screen-copy,
+  .service-info-overlay,
+  .service-info-card,
+  .guide-overlay,
+  .guide-card,
+  .mermaid-fullscreen-overlay,
+  .mermaid-fullscreen-content,
+  .modal-overlay,
+  .modal-content {
     animation: none !important;
     transition: none !important;
   }
