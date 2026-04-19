@@ -1051,7 +1051,7 @@ function App() {
 
                     {expandedAnalysisByMessage[index] && (
                       <>
-                        <div className="reasoning-section-header reasoning-section-header--subtle">
+                        <div className="reasoning-section-header">
                           <h4>Pros &amp; Cons</h4>
                           <button
                             type="button"
