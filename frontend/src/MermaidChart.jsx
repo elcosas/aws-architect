@@ -21,7 +21,90 @@ const normalizeMermaidText = (source) => {
 const MermaidChart = ({ chart }) => {
   const [svgCode, setSvgCode] = useState('');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false);
   const chartIdRef = useRef(`mermaid-${Math.random().toString(36).slice(2, 9)}`);
+
+  const extractSvgMarkup = () => {
+    if (!svgCode || typeof svgCode !== 'string' || !svgCode.includes('<svg')) {
+      return '';
+    }
+
+    const match = svgCode.match(/<svg[\s\S]*<\/svg>/i);
+    return match ? match[0] : '';
+  };
+
+  const downloadBlob = (blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 300);
+  };
+
+  const handleDownloadSvg = () => {
+    const svgMarkup = extractSvgMarkup();
+    if (!svgMarkup) return;
+
+    const svgBlob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
+    downloadBlob(svgBlob, `${chartIdRef.current}.svg`);
+    setIsDownloadMenuOpen(false);
+  };
+
+  const handleDownloadPng = async () => {
+    const svgMarkup = extractSvgMarkup();
+    if (!svgMarkup) return;
+
+    const svgBlob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
+    const blobUrl = URL.createObjectURL(svgBlob);
+
+    try {
+      await new Promise((resolve, reject) => {
+        const image = new Image();
+
+        image.onload = () => {
+          const width = Math.max(1, Math.floor(image.naturalWidth || 1200));
+          const height = Math.max(1, Math.floor(image.naturalHeight || 700));
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext('2d');
+
+          if (!context) {
+            reject(new Error('Unable to create canvas context for PNG export.'));
+            return;
+          }
+
+          context.clearRect(0, 0, width, height);
+          context.drawImage(image, 0, 0, width, height);
+
+          canvas.toBlob(
+            (pngBlob) => {
+              if (!pngBlob) {
+                reject(new Error('PNG export failed.'));
+                return;
+              }
+              downloadBlob(pngBlob, `${chartIdRef.current}.png`);
+              resolve();
+            },
+            'image/png',
+            1,
+          );
+        };
+
+        image.onerror = () => reject(new Error('Unable to render SVG to PNG.'));
+        image.src = blobUrl;
+      });
+    } catch (error) {
+      console.error('PNG export error:', error);
+    } finally {
+      URL.revokeObjectURL(blobUrl);
+      setIsDownloadMenuOpen(false);
+    }
+  };
 
   useEffect(() => {
     if (!isMermaidInitialized) {
@@ -78,15 +161,66 @@ const MermaidChart = ({ chart }) => {
     };
   }, [chart]);
 
+  const canExportDiagram = svgCode?.includes('<svg');
+
   return (
     <>
       {/* Regular Inline Chart */}
-      <div 
-        className="mermaid-wrapper" 
-        dangerouslySetInnerHTML={{ __html: svgCode }} 
-        onClick={() => svgCode?.includes('<svg') && setIsFullscreen(true)}
-        title="Click to expand"
-      />
+      <div className="mermaid-wrapper" title="Click diagram to expand">
+        {canExportDiagram && (
+          <div className="mermaid-actions">
+            <button
+              type="button"
+              className="mermaid-copy-trigger"
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsDownloadMenuOpen(true);
+              }}
+              aria-label="Download diagram"
+              title="Download diagram"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect x="9" y="9" width="11" height="11" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="1.9" />
+                <rect x="4" y="4" width="11" height="11" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="1.9" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        <div
+          className="mermaid-canvas"
+          dangerouslySetInnerHTML={{ __html: svgCode }}
+          onClick={() => {
+            if (canExportDiagram) {
+              setIsDownloadMenuOpen(false);
+              setIsFullscreen(true);
+            }
+          }}
+        />
+      </div>
+
+      {isDownloadMenuOpen && (
+        <div className="mermaid-download-overlay" onClick={() => setIsDownloadMenuOpen(false)}>
+          <div className="mermaid-download-modal" role="dialog" aria-modal="true" aria-label="Choose diagram download format" onClick={(event) => event.stopPropagation()}>
+            <h4>Download diagram</h4>
+            <div className="mermaid-download-menu" role="menu" aria-label="Download diagram format">
+              <button type="button" role="menuitem" onClick={handleDownloadSvg}>
+                Download SVG
+              </button>
+              <button type="button" role="menuitem" onClick={handleDownloadPng}>
+                Download PNG
+              </button>
+            </div>
+            <button
+              type="button"
+              className="mermaid-download-cancel"
+              onClick={() => setIsDownloadMenuOpen(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Fullscreen Overlay Modal */}
       {isFullscreen && (

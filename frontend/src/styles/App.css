@@ -1527,6 +1527,7 @@
 
 /* --- 8. MERMAID DIAGRAM STYLING --- */
 .mermaid-wrapper {
+  position: relative;
   display: flex;
   justify-content: center;
   background-color: #131314;
@@ -1538,6 +1539,119 @@
   contain: content;
   cursor: pointer;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.mermaid-canvas {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.mermaid-actions {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+}
+
+.mermaid-copy-trigger {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(170, 59, 255, 0.45);
+  background: rgba(25, 21, 33, 0.9);
+  color: #e9d5ff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.mermaid-copy-trigger:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 153, 0, 0.72);
+  background: rgba(38, 30, 50, 0.94);
+}
+
+.mermaid-copy-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+
+.mermaid-download-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(7, 8, 10, 0.56);
+  backdrop-filter: blur(3px);
+  animation: popupOverlayFadeIn 0.3s ease both;
+}
+
+.mermaid-download-modal {
+  width: min(92vw, 320px);
+  border-radius: 14px;
+  border: 1px solid rgba(170, 59, 255, 0.42);
+  background: linear-gradient(160deg, rgba(26, 22, 34, 0.98) 0%, rgba(20, 21, 24, 0.98) 100%);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.44);
+  padding: 14px;
+  animation: popupRiseAndSettle 0.32s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.mermaid-download-modal h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: #f3f6fb;
+}
+
+.mermaid-download-menu {
+  min-width: 132px;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid rgba(170, 59, 255, 0.32);
+  background: rgba(24, 25, 28, 0.97);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.38);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mermaid-download-menu button {
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+
+.mermaid-download-menu button:hover {
+  background: rgba(170, 59, 255, 0.16);
+}
+
+.mermaid-download-cancel {
+  margin-top: 10px;
+  width: 100%;
+  border: 1px solid rgba(170, 59, 255, 0.35);
+  border-radius: 9px;
+  background: rgba(33, 28, 43, 0.88);
+  color: #e9d5ff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.mermaid-download-cancel:hover {
+  border-color: rgba(255, 153, 0, 0.58);
+  background: rgba(42, 33, 57, 0.92);
 }
 
 @media (max-width: 760px) {
@@ -1974,6 +2088,42 @@
 .theme-light .reasoning-column {
   border-color: #d8dee8;
   background: rgba(248, 250, 252, 0.9);
+}
+
+.theme-light .mermaid-copy-trigger {
+  border-color: rgba(124, 58, 237, 0.35);
+  background: rgba(255, 255, 255, 0.96);
+  color: #5b21b6;
+}
+
+.theme-light .mermaid-copy-trigger:hover {
+  border-color: rgba(217, 119, 6, 0.62);
+  background: #ffffff;
+}
+
+.theme-light .mermaid-download-menu {
+  border-color: rgba(124, 58, 237, 0.28);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.theme-light .mermaid-download-modal {
+  border-color: rgba(124, 58, 237, 0.34);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 243, 255, 0.98) 100%);
+}
+
+.theme-light .mermaid-download-modal h4 {
+  color: #1e293b;
+}
+
+.theme-light .mermaid-download-cancel {
+  border-color: rgba(124, 58, 237, 0.3);
+  background: rgba(255, 255, 255, 0.96);
+  color: #4c1d95;
+}
+
+.theme-light .mermaid-download-cancel:hover {
+  border-color: rgba(217, 119, 6, 0.58);
+  background: #ffffff;
 }
 
 .theme-light .section-copy-button {
