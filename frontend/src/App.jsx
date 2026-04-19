@@ -9,7 +9,7 @@ const WS_URL =
   import.meta.env.VITE_WS_URL || 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev'
 const SESSION_STORAGE_KEY = 'aws-architect.sessionID'
 const ASSISTANT_MERMAID_SEPARATOR = '\n\n<<<MERMAID_DIAGRAM>>>\n\n'
-const SETUP_TEMPLATE_URL = 'https://chatbot-setup-templates-yourname.s3.amazonaws.com/setup.yml'
+const SETUP_TEMPLATE_URL = 'https://cloudweaver-user-templates.s3.us-west-2.amazonaws.com/cloudformation-user-setup.yml'
 
 const getStoredSessionId = () => {
   if (typeof window === 'undefined') {
