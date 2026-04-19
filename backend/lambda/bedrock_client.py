@@ -1,6 +1,7 @@
 import boto3
 import json
 import os
+import re
 
 bedrock = boto3.client(
     "bedrock-runtime",
@@ -60,6 +61,7 @@ def invoke_bedrock(system_prompt: str, user_message: str, tool_type: str = "merm
     try:
         # Select the correct tool schema based on the requested type
         tools = CFN_TOOL_DEFINITIONS if tool_type == "cloudformation" else TOOL_DEFINITIONS
+        tool_name = "generate_cfn" if tool_type == "cloudformation" else "select_architecture"
 
         # Call the Bedrock Converse API with the Claude model
         response = bedrock.converse(
@@ -69,7 +71,10 @@ def invoke_bedrock(system_prompt: str, user_message: str, tool_type: str = "merm
                 "role": "user",
                 "content": [{"text": user_message}]
             }],
-            toolConfig={"tools": tools}
+            toolConfig={
+                "tools": tools,
+                "toolChoice": {"tool": {"name": tool_name}}
+            }
         )
 
         # Extract the content blocks from the response message
@@ -80,8 +85,24 @@ def invoke_bedrock(system_prompt: str, user_message: str, tool_type: str = "merm
             if block.get("toolUse"):
                 return block["toolUse"]["input"]
 
-        # Return an error if Claude didn't use the required tool
-        return {"error": "Bedrock did not return a tool call"}
+        # Fallback: extract plain text if model responded without a tool call
+        text_chunks = [block.get("text", "") for block in content if isinstance(block, dict)]
+        combined_text = "\n".join(chunk for chunk in text_chunks if chunk).strip()
+
+        if combined_text:
+            if tool_type == "cloudformation":
+                yaml_match = re.search(r"```(?:yaml|yml)?\n([\s\S]*?)```", combined_text, re.IGNORECASE)
+                if yaml_match:
+                    return {"cloudformation_yaml": yaml_match.group(1).strip()}
+            else:
+                mermaid_match = re.search(r"```(?:mermaid)?\n([\s\S]*?)```", combined_text, re.IGNORECASE)
+                if mermaid_match:
+                    return {"mermaid_code": mermaid_match.group(1).strip()}
+
+            return {"error": f"Bedrock returned text instead of tool call: {combined_text[:400]}"}
+
+        # Return an error if Claude didn't use the required tool and no text fallback exists
+        return {"error": "Bedrock did not return a tool call or text response"}
 
     except Exception as e:
         # Catch and return any API or validation errors

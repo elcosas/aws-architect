@@ -31,6 +31,29 @@ function App() {
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
   const modeMenuRef = useRef(null);
+  const responseTimeoutRef = useRef(null);
+
+  const clearResponseTimeout = () => {
+    if (responseTimeoutRef.current) {
+      clearTimeout(responseTimeoutRef.current);
+      responseTimeoutRef.current = null;
+    }
+  };
+
+  const startResponseTimeout = () => {
+    clearResponseTimeout();
+    responseTimeoutRef.current = setTimeout(() => {
+      setIsLoading(false);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: '**Timeout Error:** The backend did not respond in time. This is usually an AWS backend issue (Lambda/Bedrock/permissions), not your browser.',
+          timestamp: getCurrentTime(),
+        },
+      ]);
+    }, 45000);
+  };
 
   const awsServices = [
     "Amazon Bedrock", "AWS Lambda", "Amazon S3", "API Gateway", 
@@ -51,6 +74,7 @@ function App() {
     socket.onopen = () => console.log('✅ WebSocket Connected!');
     
     socket.onmessage = (event) => {
+      clearResponseTimeout();
       setIsLoading(false);
       try {
         const data = JSON.parse(event.data);
@@ -74,6 +98,7 @@ function App() {
 
     socket.onerror = (error) => {
       console.error(`❌ WebSocket Error while connecting to ${WS_URL}:`, error);
+      clearResponseTimeout();
       setIsLoading(false);
     };
 
@@ -81,11 +106,15 @@ function App() {
       console.warn(
         `⚠️ WebSocket Disconnected (code=${event.code}, reason="${event.reason || 'no reason provided'}", clean=${event.wasClean})`
       );
+      clearResponseTimeout();
       setIsLoading(false); 
     };
 
     setWs(socket);
-    return () => socket.close();
+    return () => {
+      clearResponseTimeout();
+      socket.close();
+    };
   }, [isTestMode]);
 
   // --- UI LOGIC ---
@@ -151,6 +180,7 @@ function App() {
         return;
       }
       ws.send(JSON.stringify({ action: "sendMessage", userInput: userMessage, services: [] }));
+      startResponseTimeout();
     }
   };
 
@@ -220,6 +250,7 @@ function App() {
         services: [],
         credentials: awsCredentials
       }));
+      startResponseTimeout();
     }
 
     setAwsCredentials({ accessKeyId: '', secretAccessKey: '' });
