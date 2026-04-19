@@ -229,6 +229,7 @@ function App() {
   const [chatBodyHeight, setChatBodyHeight] = useState(null);
   const [inputAreaHeight, setInputAreaHeight] = useState(null);
   const [isResizingChat, setIsResizingChat] = useState(false);
+  const [isMobileServicesOpen, setIsMobileServicesOpen] = useState(false);
 
   const appContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -478,6 +479,7 @@ function App() {
   const resizeChatBody = (clientY) => {
     const appEl = appContainerRef.current
     const metaFooterEl = appMetaFooterRef.current
+    const inputAreaEl = inputAreaRef.current
     if (!appEl || typeof clientY !== 'number') {
       return
     }
@@ -493,14 +495,27 @@ function App() {
       return
     }
 
+    // dynamically calculate minimum required height for input section
+    let dynamicMinInputHeight = MIN_INPUT_SECTION_HEIGHT;
+    if (inputAreaEl) {
+      const isMobile = window.innerWidth <= 640;
+      // On mobile, if services aren't open, we need less space.
+      if (isMobile && !isMobileServicesOpen) {
+        dynamicMinInputHeight = 100; // Roughly form height + controls height
+      } else {
+        // Full minimum height for desktop or open mobile panel
+        dynamicMinInputHeight = MIN_INPUT_SECTION_HEIGHT; 
+      }
+    }
+
     const pointerFromTop = clientY - appRect.top - headerHeight
     const minChatHeight = MIN_CHAT_BODY_HEIGHT
-    const maxChatHeight = Math.max(minChatHeight, availableHeight - MIN_INPUT_SECTION_HEIGHT)
+    const maxChatHeight = Math.max(minChatHeight, availableHeight - dynamicMinInputHeight)
     let nextChatHeight = Math.min(maxChatHeight, Math.max(minChatHeight, pointerFromTop))
-    let nextInputHeight = Math.max(MIN_INPUT_SECTION_HEIGHT, availableHeight - nextChatHeight)
+    let nextInputHeight = Math.max(dynamicMinInputHeight, availableHeight - nextChatHeight)
 
     const maxInputByViewport = Math.floor(appRect.height * MAX_INPUT_SECTION_RATIO)
-    const maxInputHeight = Math.max(MIN_INPUT_SECTION_HEIGHT, maxInputByViewport)
+    const maxInputHeight = Math.max(dynamicMinInputHeight, maxInputByViewport)
 
     if (nextInputHeight > maxInputHeight) {
       nextInputHeight = maxInputHeight
@@ -510,6 +525,11 @@ function App() {
     setChatBodyHeight(nextChatHeight)
     setInputAreaHeight(nextInputHeight)
   }
+
+  useEffect(() => {
+    setInputAreaHeight(null);
+    setChatBodyHeight(null);
+  }, [isMobileServicesOpen]);
 
   const startChatResize = (event) => {
     event.preventDefault()
@@ -973,7 +993,6 @@ function App() {
         className="chat-body-scroll"
         ref={chatContainerRef}
         onScroll={handleScroll}
-        style={chatBodyHeight ? { height: `${chatBodyHeight}px`, flex: '0 0 auto' } : undefined}
       >
         {messages.length > 0 ? (
           <main className="messages-area">
@@ -1132,53 +1151,81 @@ function App() {
               </button>
             </div>
           )}
+          <button
+            type="button"
+            className="services-toggle-button"
+            onClick={() => setIsMobileServicesOpen((prev) => !prev)}
+            aria-label="Toggle AWS services panel"
+            aria-expanded={isMobileServicesOpen}
+          >
+            {isMobileServicesOpen ? '▼ Services' : '▲ Services'}
+          </button>
         </div>
         <form className="input-form" onSubmit={handleSendMessage}>
-          <input type="text" className="chat-input" placeholder="Ask Cloud Weaver" value={inputValue} onChange={(e) => setInputValue(e.target.value)} disabled={isLoading} />
+          <textarea
+            className="chat-input"
+            rows={1}
+            placeholder="Ask Cloud Weaver"
+            value={inputValue}
+            onInput={(e) => {
+              setInputValue(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = e.target.scrollHeight + 'px';
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendMessage(e);
+              }
+            }}
+            disabled={isLoading}
+          />
           <button type="submit" className="send-button" disabled={isLoading || !inputValue.trim()}>Send</button>
         </form>
-        <div className="services-panel" aria-label="AWS services in current diagram">
-          <div className={`services-grid ${awsServices.length === 7 ? 'services-grid--seven' : ''}`}>
-            {awsServices.map(service => {
-              const isUsed = activeServices.has(service)
-              const isSelected = selectedServices.includes(service)
-              return (
-                <div key={service} className="service-chip-row">
-                  <button
-                    type="button"
-                    className={`chip-button ${isUsed ? 'chip-button--used' : 'chip-button--unused'} ${isSelected ? 'chip-button--selected' : ''}`}
-                    onClick={() => handleServiceToggle(service)}
-                    aria-pressed={isSelected}
-                  >
-                    <span className={`service-status-dot ${isUsed ? 'used' : 'unused'}`} aria-hidden="true" />
-                    <span className="service-name">{service}</span>
-                  </button>
+        <div className={`services-panel-container ${isMobileServicesOpen ? 'is-open' : ''}`}>
+          <div className="services-panel" aria-label="AWS services in current diagram">
+            <div className={`services-grid ${awsServices.length === 7 ? 'services-grid--seven' : ''}`}>
+              {awsServices.map(service => {
+                const isUsed = activeServices.has(service)
+                const isSelected = selectedServices.includes(service)
+                return (
+                  <div key={service} className="service-chip-row">
+                    <button
+                      type="button"
+                      className={`chip-button ${isUsed ? 'chip-button--used' : 'chip-button--unused'} ${isSelected ? 'chip-button--selected' : ''}`}
+                      onClick={() => handleServiceToggle(service)}
+                      aria-pressed={isSelected}
+                    >
+                      <span className={`service-status-dot ${isUsed ? 'used' : 'unused'}`} aria-hidden="true" />
+                      <span className="service-name">{service}</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    className="service-info-trigger"
-                    aria-label={`Learn about ${service}`}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      setActiveServiceInfo(service)
-                    }}
-                  >
-                    i
-                  </button>
-                </div>
-              )
-            })}
+                    <button
+                      type="button"
+                      className="service-info-trigger"
+                      aria-label={`Learn about ${service}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setActiveServiceInfo(service)
+                      }}
+                    >
+                      i
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          
+          <div ref={appMetaFooterRef} className="app-meta-footer" aria-label="Application footer">
+            <span>© 2026 Cloud Weaver</span>
+            <span aria-hidden="true">•</span>
+            <a href="https://github.com/elcosas/aws-architect" target="_blank" rel="noreferrer">
+              About
+            </a>
           </div>
         </div>
       </footer>
-
-      <div ref={appMetaFooterRef} className="app-meta-footer" aria-label="Application footer">
-        <span>© 2026 Cloud Weaver</span>
-        <span aria-hidden="true">•</span>
-        <a href="https://github.com/elcosas/aws-architect" target="_blank" rel="noreferrer">
-          About
-        </a>
-      </div>
 
       {serviceInfoModal}
   {helpGuideModal}

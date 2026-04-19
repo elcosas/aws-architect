@@ -149,7 +149,8 @@
 .chat-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100vh; /* Fallback */
+  height: 100dvh;
   width: 100%;
   background-color: var(--bg-primary);
   color: var(--text-primary);
@@ -627,6 +628,11 @@
   font-family: var(--font-sans);
   font-weight: 500;
   outline: none;
+  resize: none;
+  overflow-y: auto;
+  min-height: calc(44px * var(--controls-scale));
+  max-height: 120px;
+  line-height: 1.4;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   animation: uiPopInBounce 0.78s cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: 0.36s;
@@ -2026,7 +2032,7 @@
 
 @media (max-width: 640px) {
   .services-grid, .services-grid--seven {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
     gap: 8px;
   }
   .chat-header {
@@ -2039,7 +2045,7 @@
   }
   .message, .chat-message {
     max-width: 95%;
-    font-size: 14px;
+    font-size: 13px;
     padding: 10px 14px;
   }
   .input-area, .input-shell {
@@ -2141,5 +2147,48 @@
   .modal-content {
     animation: none !important;
     transition: none !important;
+  }
+}.services-toggle-button {
+  display: none;
+}
+.services-panel-container {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 640px) {
+  .services-toggle-button {
+    display: inline-flex;
+    align-items: center;
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--panel-border);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    margin-left: auto;
+  }
+  .services-toggle-button:hover {
+    background: rgba(170, 59, 255, 0.1);
+  }
+  .services-panel-container {
+    max-height: 0;
+    opacity: 0;
+    visibility: hidden;
+    overflow: hidden;
+    transform: translateY(-10px);
+    transition: max-height 0.4s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.3s ease, transform 0.3s ease, visibility 0.4s;
+  }
+  .services-panel-container.is-open {
+    max-height: 800px;
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    margin-top: 12px;
+  }
+  .services-grid, .services-grid--seven {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 }

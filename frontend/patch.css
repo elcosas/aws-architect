@@ -1,0 +1,33 @@
+.services-toggle-button {
+  display: none;
+}
+.services-panel-container {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 640px) {
+  .services-toggle-button {
+    display: inline-flex;
+    align-items: center;
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--panel-border);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    margin-left: auto;
+  }
+  .services-panel-container {
+    display: none;
+  }
+  .services-panel-container.is-open {
+    display: flex;
+    flex-direction: column;
+  }
+  .services-grid, .services-grid--seven {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
