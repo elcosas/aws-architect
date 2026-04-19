@@ -10,6 +10,7 @@ from session_store import (
     build_assistant_message_content,
     ensure_session_external_id,
     generate_session_id,
+    get_session_external_id,
     get_latest_assistant_architecture_context,
     get_recent_chat_messages,
     save_message,
@@ -36,6 +37,7 @@ SERVICE_MATCHERS = {
 }
 
 ALLOWED_SERVICE_SET = set(SERVICE_MATCHERS.keys())
+IAM_ROLE_ARN_PATTERN = re.compile(r"^arn:aws(-[a-z]+)?:iam::\d{12}:role\/[A-Za-z0-9+=,.@_\/-]{1,512}$")
 
 
 def get_apigw_management_client(event):
@@ -161,6 +163,26 @@ def normalize_selected_services(services):
     if not isinstance(services, list):
         return []
     return [service for service in services if isinstance(service, str) and service in ALLOWED_SERVICE_SET]
+
+
+def normalize_role_arn(role_arn):
+    if not isinstance(role_arn, str):
+        return None
+    normalized = role_arn.strip()
+    if not normalized:
+        return None
+    if not IAM_ROLE_ARN_PATTERN.match(normalized):
+        return None
+    return normalized
+
+
+def assume_cross_account_role(role_arn: str, external_id: str):
+    sts_client = boto3.client("sts")
+    return sts_client.assume_role(
+        RoleArn=role_arn,
+        RoleSessionName="ChatbotDeployment",
+        ExternalId=external_id,
+    )
 
 
 def is_missing_dynamodb_resource_error(error: Exception) -> bool:
@@ -472,45 +494,39 @@ def handler(event, context):
                 )
                 return send_ws_and_return(apigw_client, connection_id, error_payload)
 
+            role_arn = normalize_role_arn(body.get("arn") or body.get("roleArn"))
+            if not role_arn:
+                error_payload = build_response_payload(
+                    {"error": "A valid IAM role ARN is required for authentication."},
+                    session_id,
+                )
+                return send_ws_and_return(apigw_client, connection_id, error_payload)
+
             try:
-                architecture_context = get_latest_assistant_architecture_context(session_id)
-                if not architecture_context:
+                external_id = get_session_external_id(session_id)
+                if not external_id:
                     error_payload = build_response_payload(
                         {
                             "error": (
-                                "No assistant architecture context found for this session. "
-                                "Send a chat message first."
+                                "No ExternalID found for this session. "
+                                "Send a chat message first, then retry authentication."
                             )
                         },
                         session_id,
                     )
                     return send_ws_and_return(apigw_client, connection_id, error_payload)
 
-                deployment_request_message = body.get(
-                    "userInput", "Generate CloudFormation for the latest approved architecture."
-                )
-                save_message(
-                    session_id,
-                    "user",
-                    deployment_request_message,
-                    message_type="standard",
-                )
+                assume_cross_account_role(role_arn, external_id)
 
-                prompt = build_cfn_prompt(
-                    architecture_context["assistant_message"],
-                    architecture_context["mermaid_code"],
-                )
-                result = invoke_bedrock(CFN_SYSTEM_PROMPT, prompt, tool_type="cloudformation")
-
-                assistant_content = build_assistant_message_for_storage(result)
+                success_message = "Authentication successful! Beginning deployment..."
                 save_message(
                     session_id,
                     "assistant",
-                    assistant_content,
+                    success_message,
                     message_type="standard",
                 )
 
-                payload = build_response_payload(result, session_id)
+                payload = build_response_payload({"message": success_message}, session_id)
                 return send_ws_and_return(apigw_client, connection_id, payload)
             except Exception as e:
                 if is_missing_dynamodb_resource_error(e):
@@ -527,7 +543,7 @@ def handler(event, context):
                     return send_ws_and_return(apigw_client, connection_id, error_payload)
 
                 error_payload = build_response_payload(
-                    {"error": f"Failed to generate CloudFormation: {str(e)}"},
+                    {"error": f"Authentication failed: {str(e)}"},
                     session_id,
                 )
                 return send_ws_and_return(apigw_client, connection_id, error_payload)
