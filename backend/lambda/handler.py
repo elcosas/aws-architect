@@ -3,6 +3,13 @@ import os
 import base64
 import boto3
 from bedrock_client import invoke_bedrock
+from session_store import (
+    ensure_session,
+    generate_session_id,
+    get_latest_assistant_architecture_context,
+    get_recent_chat_messages,
+    save_message,
+)
 
 SYSTEM_PROMPT = open(
     os.path.join(os.path.dirname(__file__), "system-prompt.txt")
@@ -31,7 +38,7 @@ def get_apigw_management_client(event):
 def send_message_to_client(apigw_client, connection_id, message):
     if apigw_client is None or not connection_id:
         print("Unable to send WebSocket message: missing API Gateway client or connection ID")
-        return
+        return 
 
     try:
         payload = json.dumps(message) if isinstance(message, dict) else str(message)
@@ -45,6 +52,87 @@ def send_message_to_client(apigw_client, connection_id, message):
         print(f"Error sending message to {connection_id}: {str(e)}")
 
 
+def build_response_payload(payload, session_id=None):
+    if isinstance(payload, dict):
+        response_payload = dict(payload)
+    else:
+        response_payload = {"message": str(payload)}
+
+    response_payload["sessionID"] = session_id
+
+    return response_payload
+
+
+def send_ws_and_return(apigw_client, connection_id, payload):
+    send_message_to_client(apigw_client, connection_id, payload)
+    return {
+        "statusCode": 200,
+        "body": json.dumps(payload),
+    }
+
+
+def parse_event_body(event):
+    raw_body = event.get("body", "{}")
+
+    if isinstance(raw_body, dict):
+        return raw_body
+
+    if raw_body is None:
+        return {}
+
+    try:
+        parsed = json.loads(raw_body)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def normalize_session_id(session_id):
+    if not isinstance(session_id, str):
+        return None
+
+    clean_session_id = session_id.strip()
+    return clean_session_id or None
+
+
+def build_user_message_for_storage(user_input: str, feedback: str = None, selected_services: list = None) -> str:
+    message_parts = []
+
+    if user_input:
+        message_parts.append(user_input.strip())
+
+    if feedback:
+        message_parts.append(f"Feedback: {feedback.strip()}")
+
+    if selected_services:
+        message_parts.append(f"Selected services: {', '.join(selected_services)}")
+
+    if not message_parts:
+        return "User requested architecture guidance."
+
+    return "\n".join(message_parts)
+
+
+def build_assistant_message_for_storage(result: dict) -> tuple[str, str | None, str | None]:
+    if not isinstance(result, dict):
+        return str(result), None, None
+
+    mermaid_code = result.get("mermaid_code")
+    if mermaid_code:
+        return f"```mermaid\n{mermaid_code}\n```", mermaid_code, None
+
+    cloudformation_yaml = result.get("cloudformation_yaml")
+    if cloudformation_yaml:
+        return f"```yaml\n{cloudformation_yaml}\n```", None, cloudformation_yaml
+
+    if result.get("error"):
+        return f"Backend Error: {result['error']}", None, None
+
+    if result.get("message"):
+        return str(result["message"]), None, None
+
+    return json.dumps(result), None, None
 def parse_event_body(event):
     """Parse API Gateway WebSocket event body safely for proxy/non-proxy shapes."""
     raw_body = event.get("body", "{}")
@@ -123,29 +211,103 @@ def handler(event, context):
                 send_message_to_client(apigw_client, connection_id, {"error": "Missing userInput/feedback"})
                 return proxy_response(200)
 
-            # Build the system prompt and invoke Bedrock
+    # Process user messages and diagram rejections
+    if route in ("sendMessage", "rejectDiagram"):
+        user_input = body.get("userInput", "")
+        feedback = body.get("feedback", None)
+        selected_services = body.get("services", [])
+        if not isinstance(selected_services, list):
+            selected_services = []
+
+        session_id = normalize_session_id(body.get("sessionID"))
+        if not session_id:
+            session_id = generate_session_id()
+
+        try:
+            ensure_session(session_id)
+            chat_history = get_recent_chat_messages(session_id)
+
+            user_message_for_storage = build_user_message_for_storage(user_input, feedback, selected_services)
+            save_message(session_id, "user", user_message_for_storage)
+
+            # Build the system prompt and invoke Bedrock with persisted history.
             prompt = build_prompt(user_input, feedback, selected_services)
-            result = invoke_bedrock(SYSTEM_PROMPT, prompt)
+            result = invoke_bedrock(
+                SYSTEM_PROMPT,
+                prompt,
+                conversation_history=chat_history,
+            )
 
-            # Send the generated Mermaid JS diagram back through WebSocket
-            send_message_to_client(apigw_client, connection_id, result)
-            return proxy_response(200)
+            assistant_content, mermaid_code, cloudformation_yaml = build_assistant_message_for_storage(result)
+            save_message(
+                session_id,
+                "assistant",
+                assistant_content,
+                mermaid_code=mermaid_code,
+                cloudformation_yaml=cloudformation_yaml,
+            )
 
-        # Generate CloudFormation based on approved diagram
-        if route == "generateCloudFormation":
-            user_input = body.get("userInput", "")
-            approved_diagram = body.get("approvedDiagram", "")
-            selected_services = body.get("services", [])
+            payload = build_response_payload(result, session_id)
+            return send_ws_and_return(apigw_client, connection_id, payload)
+        except Exception as e:
+            error_payload = build_response_payload(
+                {"error": f"Failed to process chat request: {str(e)}"},
+                session_id,
+            )
+            return send_ws_and_return(apigw_client, connection_id, error_payload)
 
-            prompt = build_cfn_prompt(user_input, approved_diagram, selected_services)
+    # Generate CloudFormation based on approved diagram
+    if route == "generateCloudFormation":
+        session_id = normalize_session_id(body.get("sessionID"))
+        if not session_id:
+            error_payload = build_response_payload(
+                {"error": "sessionID is required for CloudFormation generation."}
+            )
+            return send_ws_and_return(apigw_client, connection_id, error_payload)
+
+        try:
+            ensure_session(session_id)
+            architecture_context = get_latest_assistant_architecture_context(session_id)
+            if not architecture_context:
+                error_payload = build_response_payload(
+                    {
+                        "error": (
+                            "No assistant architecture context found for this session. "
+                            "Send a chat message first."
+                        )
+                    },
+                    session_id,
+                )
+                return send_ws_and_return(apigw_client, connection_id, error_payload)
+
+            deployment_request_message = body.get(
+                "userInput", "Generate CloudFormation for the latest approved architecture."
+            )
+            save_message(session_id, "user", deployment_request_message)
+
+            # Enforce exception rule: only use latest assistant response and Mermaid diagram.
+            prompt = build_cfn_prompt(
+                architecture_context["assistant_message"],
+                architecture_context["mermaid_code"],
+            )
             result = invoke_bedrock(CFN_SYSTEM_PROMPT, prompt, tool_type="cloudformation")
 
-            # Send the CloudFormation result back through WebSocket
-            send_message_to_client(apigw_client, connection_id, result)
-            return proxy_response(200)
+            assistant_content, _, cloudformation_yaml = build_assistant_message_for_storage(result)
+            save_message(
+                session_id,
+                "assistant",
+                assistant_content,
+                cloudformation_yaml=cloudformation_yaml,
+            )
 
-        send_message_to_client(apigw_client, connection_id, {"error": f"Unknown route: {route}"})
-        return proxy_response(200)
+            payload = build_response_payload(result, session_id)
+            return send_ws_and_return(apigw_client, connection_id, payload)
+        except Exception as e:
+            error_payload = build_response_payload(
+                {"error": f"Failed to generate CloudFormation: {str(e)}"},
+                session_id,
+            )
+            return send_ws_and_return(apigw_client, connection_id, error_payload)
 
     except Exception as e:
         print(f"Unhandled handler exception: {e}")
@@ -178,14 +340,11 @@ def build_prompt(user_input: str, feedback: str = None, selected_services: list 
 # Step 3: CloudFormation Prompt Construction
 # Formats the final approved diagram for CFN generation.
 # ---------------------------------------------------------
-def build_cfn_prompt(user_input: str, approved_diagram: str, selected_services: list) -> str:
-    services_text = ""
-    if selected_services:
-        services_text = f" They requested using these specific services: {', '.join(selected_services)}."
-
+def build_cfn_prompt(last_assistant_message: str, approved_diagram: str) -> str:
     return (
-        f"The user wants to build: {user_input}.{services_text}\n\n"
-        f"They have approved the following architecture diagram:\n\n"
+        "Use only the context below from the latest assistant architecture response.\n\n"
+        f"Latest assistant message:\n{last_assistant_message}\n\n"
+        "Approved architecture diagram:\n\n"
         f"```mermaid\n{approved_diagram}\n```\n\n"
         f"Generate the CloudFormation YAML template."
     )

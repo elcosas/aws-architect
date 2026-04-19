@@ -6,38 +6,81 @@ import './styles/App.css'
 const DEFAULT_TEST_MODE = import.meta.env.VITE_TEST_MODE !== 'false'
 const WS_URL =
   import.meta.env.VITE_WS_URL || 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev'
+const SESSION_STORAGE_KEY = 'aws-architect.sessionID'
+
+const getStoredSessionId = () => {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  try {
+    return window.localStorage.getItem(SESSION_STORAGE_KEY)
+  } catch (error) {
+    console.warn('Unable to read sessionID from localStorage:', error)
+    return null
+  }
+}
+
+const storeSessionId = (sessionId) => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    if (sessionId) {
+      window.localStorage.setItem(SESSION_STORAGE_KEY, sessionId)
+    } else {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY)
+    }
+  } catch (error) {
+    console.warn('Unable to write sessionID to localStorage:', error)
+  }
+}
+
+const generateLocalSessionId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+
+  return `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 
 const getCurrentTime = () => {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
 const SERVICE_MATCHERS = {
-  'Amazon Bedrock': /\bbedrock\b/i,
-  'AWS Lambda': /\blambda\b/i,
-  'Amazon S3': /\bs3\b|simple\s+storage/i,
-  'API Gateway': /api\s*gateway|apigateway/i,
-  'CloudFront': /\bcloudfront\b/i,
-  'CloudFormation': /\bcloudformation\b/i,
-  'DynamoDB': /\bdynamodb\b/i,
-  'AWS IAM': /\biam\b|identity\s+and\s+access\s+management/i,
+  'Amazon Bedrock': /\bbedrock\b|br\b/i,
+  'AWS Lambda': /\blambda\b|\bfn\b/i,
+  'Amazon S3': /\bs3\b|simple\s+storage|bucket/i,
+  'API Gateway': /api\s*gateway|apigateway|\bapigw\b|\bgateway\b/i,
+  'CloudFront': /\bcloudfront\b|\bcf\b/i,
+  'CloudFormation': /\bcloudformation\b|\bcfn\b/i,
+  'DynamoDB': /\bdynamodb\b|\bddb\b/i,
+  'AWS IAM': /\biam\b|identity\s+and\s+access\s+management|identity\s+center|sts/i,
 };
 
-const extractLatestMermaidCode = (messages) => {
+const extractLatestAssistantContent = (messages) => {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
     if (message?.role !== 'assistant' || typeof message?.content !== 'string') continue;
-    const mermaidMatch = message.content.match(/```mermaid\s*([\s\S]*?)```/i);
-    if (mermaidMatch?.[1]) return mermaidMatch[1];
+    return message.content;
   }
   return '';
 };
 
-const getUsedServicesFromMermaid = (mermaidCode) => {
+const getUsedServicesFromContent = (content) => {
   const activeServices = new Set();
-  const normalized = mermaidCode.toLowerCase();
+  if (!content) return activeServices;
+
+  const mermaidMatch = content.match(/```mermaid\s*([\s\S]*?)```/i);
+  const sourceText = (mermaidMatch?.[1] || content)
+    .replace(/[`*_#>-]/g, ' ')
+    .replace(/<br\/?\s*>/gi, ' ')
+    .toLowerCase();
 
   Object.entries(SERVICE_MATCHERS).forEach(([serviceName, matcher]) => {
-    if (matcher.test(normalized)) {
+    if (matcher.test(sourceText)) {
       activeServices.add(serviceName);
     }
   });
@@ -52,6 +95,7 @@ function App() {
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [ws, setWs] = useState(null);
   const [isTestMode, setIsTestMode] = useState(DEFAULT_TEST_MODE);
+  const [sessionID, setSessionID] = useState(() => getStoredSessionId());
   
   // Modal States
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
@@ -95,9 +139,8 @@ function App() {
   ];
 
   const activeServices = useMemo(() => {
-    const latestMermaid = extractLatestMermaidCode(messages);
-    if (!latestMermaid) return new Set();
-    return getUsedServicesFromMermaid(latestMermaid);
+    const latestAssistantContent = extractLatestAssistantContent(messages);
+    return getUsedServicesFromContent(latestAssistantContent);
   }, [messages]);
 
   useEffect(() => {
@@ -122,6 +165,18 @@ function App() {
       setIsLoading(false);
       try {
         const data = JSON.parse(event.data);
+
+        if (typeof data.sessionID === 'string' && data.sessionID.trim()) {
+          const returnedSessionID = data.sessionID.trim();
+          setSessionID((prev) => {
+            if (prev !== returnedSessionID) {
+              storeSessionId(returnedSessionID);
+            }
+
+            return returnedSessionID;
+          });
+        }
+
         if (data.mermaid_code) {
           const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\``;
           setMessages(prev => [...prev, { role: 'assistant', content: botResponse, timestamp: getCurrentTime() }]);
@@ -205,6 +260,12 @@ function App() {
     if (isTestMode) {
       // 🧪 Fake the backend response
       setTimeout(() => {
+        const mockSessionID = sessionID || generateLocalSessionId();
+        if (!sessionID) {
+          setSessionID(mockSessionID);
+          storeSessionId(mockSessionID);
+        }
+
         setIsLoading(false);
         setMessages(prev => [...prev, { 
           role: 'assistant', 
@@ -223,8 +284,12 @@ function App() {
         }]);
         return;
       }
-      ws.send(JSON.stringify({ action: "sendMessage", userInput: userMessage, services: [] }));
-      startResponseTimeout();
+      ws.send(JSON.stringify({
+        action: "sendMessage",
+        sessionID: sessionID || null,
+        userInput: userMessage,
+        services: []
+      }));
     }
   };
 
@@ -266,9 +331,25 @@ function App() {
     }]);
     setIsLoading(true);
 
+    if (!isTestMode && !sessionID) {
+      setIsLoading(false);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: '**Session Error:** Please send at least one chat message first so a session can be created.',
+        timestamp: getCurrentTime()
+      }]);
+      return;
+    }
+
     if (isTestMode) {
       // 🧪 Fake the deployment response
       setTimeout(() => {
+        const mockSessionID = sessionID || generateLocalSessionId();
+        if (!sessionID) {
+          setSessionID(mockSessionID);
+          storeSessionId(mockSessionID);
+        }
+
         setIsLoading(false);
         setMessages(prev => [...prev, { 
           role: 'assistant', 
@@ -289,9 +370,8 @@ function App() {
       }
       ws.send(JSON.stringify({ 
         action: "generateCloudFormation", 
-        userInput: "approved architecture",
-        approvedDiagram: "",
-        services: [],
+        sessionID: sessionID || null,
+        userInput: "Generate CloudFormation for the latest approved architecture.",
         credentials: awsCredentials
       }));
       startResponseTimeout();

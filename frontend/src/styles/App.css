@@ -473,17 +473,25 @@
 }
 
 .chip-button--used {
-  background: linear-gradient(135deg, rgba(35, 134, 86, 0.15) 0%, rgba(35, 134, 86, 0.3) 100%);
-  border-color: #2ea043;
-  color: #7ee787;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.3) 100%);
+  border-color: #22c55e;
+  color: #dcfce7;
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.28), 0 4px 12px rgba(34, 197, 94, 0.18);
 }
 
 .chip-button--used:hover {
-  background: linear-gradient(135deg, rgba(35, 134, 86, 0.25) 0%, rgba(35, 134, 86, 0.4) 100%);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.25) 0%, rgba(22, 163, 74, 0.4) 100%);
   border-color: #3fb950;
   color: #aff5b4;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(46, 160, 67, 0.2);
+  box-shadow: 0 4px 12px rgba(46, 160, 67, 0.3);
+}
+
+.chip-button--unused {
+  background-color: #171819;
+  border-color: #2f3233;
+  color: #646e70;
+  opacity: 0.65;
 }
 
 /* --- 7. MARKDOWN STYLING --- */
