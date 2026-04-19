@@ -10,6 +10,7 @@ const WS_URL =
 const SESSION_STORAGE_KEY = 'aws-architect.sessionID'
 const ASSISTANT_MERMAID_SEPARATOR = '\n\n<<<MERMAID_DIAGRAM>>>\n\n'
 const SETUP_TEMPLATE_URL = 'https://cloudweaver-user-templates.s3.us-west-2.amazonaws.com/cloudformation-user-setup.yml'
+const IAM_ROLE_ARN_PATTERN = /^arn:aws(-[a-z]+)?:iam::\d{12}:role\/[A-Za-z0-9+=,.@_\/-]{1,512}$/
 
 const getStoredSessionId = () => {
   if (typeof window === 'undefined') {
@@ -173,6 +174,8 @@ const normalizeAssistantMessageContent = (content) => {
   return `${assistantText}\n\n${mermaidBlock}`;
 };
 
+const isValidRoleArn = (value) => IAM_ROLE_ARN_PATTERN.test((value || '').trim())
+
 function App() {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
@@ -187,6 +190,7 @@ function App() {
   const [deployError, setDeployError] = useState('');
   const [isFetchingExternalId, setIsFetchingExternalId] = useState(false);
   const [latestExternalId, setLatestExternalId] = useState('');
+  const [roleArn, setRoleArn] = useState('');
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [selectedServices, setSelectedServices] = useState([]);
   const [activeServiceInfo, setActiveServiceInfo] = useState(null);
@@ -309,6 +313,8 @@ function App() {
     const latestAssistantContent = extractLatestAssistantContent(messages);
     return getUsedServicesFromContent(latestAssistantContent);
   }, [messages]);
+
+  const hasValidRoleArn = useMemo(() => isValidRoleArn(roleArn), [roleArn]);
 
   useEffect(() => {
     if (isTestMode) {
@@ -489,6 +495,7 @@ function App() {
     if (isConfirmed) {
       setDeployError('');
       setLatestExternalId('');
+      setRoleArn('');
       setIsDeployModalOpen(true);
     }
   };
@@ -530,6 +537,60 @@ function App() {
     }
   };
 
+  const handleGenerateCloudFormationWithArn = () => {
+    setDeployError('');
+
+    const normalizedRoleArn = roleArn.trim();
+    if (!hasValidRoleArn) {
+      setDeployError('Enter a valid IAM Role ARN before generating CloudFormation.');
+      return;
+    }
+
+    if (!isTestMode && !sessionID) {
+      setDeployError('Please send at least one chat message first so a session can be created.');
+      return;
+    }
+
+    if (isTestMode) {
+      setMessages(prev => [...prev,
+        {
+          role: 'user',
+          content: `Use this Role ARN for deployment: ${normalizedRoleArn}`,
+          timestamp: getCurrentTime(),
+        },
+        {
+          role: 'assistant',
+          content: 'Test mode: would now request CloudFormation generation with your provided Role ARN.',
+          timestamp: getCurrentTime(),
+        },
+      ]);
+      setIsDeployModalOpen(false);
+      return;
+    }
+
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      setDeployError('Lost connection to AWS backend.');
+      return;
+    }
+
+    setIsDeployModalOpen(false);
+    setIsLoading(true);
+    setMessages(prev => [...prev, {
+      role: 'user',
+      content: `Generate CloudFormation using Role ARN: ${normalizedRoleArn}`,
+      timestamp: getCurrentTime(),
+    }]);
+
+    ws.send(JSON.stringify({
+      action: 'generateCloudFormation',
+      sessionID: sessionID || null,
+      userInput: 'Generate CloudFormation for the latest approved architecture.',
+      services: selectedServices,
+      roleArn: normalizedRoleArn,
+    }));
+    startResponseTimeout();
+  };
+
   const handleCloseModal = () => {
     setIsDeployModalOpen(false);
     setDeployError('');
@@ -553,6 +614,7 @@ function App() {
     setIsDeployModalOpen(false);
     setActiveServiceInfo(null);
     setLatestExternalId('');
+    setRoleArn('');
   };
 
   const handleModeSelect = (mode) => {
@@ -843,6 +905,23 @@ function App() {
               </div>
             )}
 
+            <div className="form-group">
+              <label>IAM Role ARN</label>
+              <input
+                type="text"
+                className="modal-input"
+                value={roleArn}
+                onChange={(event) => {
+                  setRoleArn(event.target.value)
+                  if (deployError) {
+                    setDeployError('')
+                  }
+                }}
+                placeholder="arn:aws:iam::123456789012:role/ChatbotIntegrationRole-ChatbotConnect"
+                aria-invalid={roleArn.trim().length > 0 && !hasValidRoleArn}
+              />
+            </div>
+
             <div className="modal-actions">
               <button type="button" className="btn-cancel" onClick={handleCloseModal}>Cancel</button>
               <button
@@ -852,6 +931,14 @@ function App() {
                 disabled={isFetchingExternalId}
               >
                 {isFetchingExternalId ? 'Preparing Link...' : 'Open AWS Setup Link'}
+              </button>
+              <button
+                type="button"
+                className="btn-confirm"
+                onClick={handleGenerateCloudFormationWithArn}
+                disabled={!hasValidRoleArn}
+              >
+                Generate CloudFormation
               </button>
             </div>
           </div>
