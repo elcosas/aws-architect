@@ -584,14 +584,14 @@
 
 .service-info-card {
   position: relative;
-  width: min(760px, 96vw);
-  max-height: calc(100vh - 48px);
+  width: min(920px, 95vw);
+  max-height: calc(100vh - 40px);
   overflow: auto;
   border-radius: 14px;
   border: 1px solid rgba(170, 59, 255, 0.38);
   background: linear-gradient(155deg, rgba(31, 22, 39, 0.98) 0%, rgba(27, 29, 31, 0.98) 100%);
   color: #e3e3e3;
-  padding: 24px 24px 18px;
+  padding: 28px 28px 22px;
   margin: auto;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6), 0 8px 20px rgba(170, 59, 255, 0.2);
 }
@@ -615,7 +615,7 @@
 
 .service-info-card h3 {
   margin: 0 0 12px;
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 700;
   background: linear-gradient(90deg, #aa3bff, #FF9900);
   background-clip: text;
@@ -626,13 +626,13 @@
 .service-info-card p {
   margin: 0 0 10px;
   line-height: 1.65;
-  font-size: 15px;
+  font-size: 16px;
   color: #d1d5db;
 }
 
 .service-info-section-title {
   margin-top: 10px;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 800;
   letter-spacing: 0.35px;
   color: #ffb84d !important;
@@ -651,7 +651,8 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
-  margin-top: 6px;
+  margin-top: 8px;
+  margin-bottom: 22px;
 }
 
 .service-pros-cons-column {
@@ -667,13 +668,65 @@
 }
 
 .service-info-card li {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  font-size: 15px;
   color: #e5e7eb;
 }
 
+.service-info-card .service-info-docs {
+  margin-top: 18px;
+}
+
 @media (max-width: 720px) {
+  .service-info-card {
+    width: min(680px, 96vw);
+    padding: 22px 20px 18px;
+  }
+
+  .service-info-card h3 {
+    font-size: 24px;
+  }
+
+  .service-info-card p,
+  .service-info-card li {
+    font-size: 15px;
+  }
+
+  .service-info-section-title {
+    font-size: 14px;
+  }
+
   .service-pros-cons-grid {
     grid-template-columns: 1fr;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .service-info-overlay {
+    padding: 14px;
+  }
+
+  .service-info-card {
+    width: 100%;
+    max-height: calc(100vh - 28px);
+    padding: 18px 16px 14px;
+    border-radius: 12px;
+  }
+
+  .service-info-card h3 {
+    font-size: 21px;
+    margin-bottom: 10px;
+  }
+
+  .service-info-card p,
+  .service-info-card li {
+    font-size: 14px;
+  }
+
+  .service-info-section-title {
+    font-size: 13px;
   }
 }
 
