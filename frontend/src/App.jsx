@@ -268,9 +268,10 @@ function App() {
       <header className="chat-header">
         <h1>AWS Architect</h1>
       </header>
-      
-      {messages.length > 0 ? (
-        <main className="messages-area" ref={chatContainerRef} onScroll={handleScroll}>
+
+      <div className="chat-body-scroll" ref={chatContainerRef} onScroll={handleScroll}>
+        {messages.length > 0 ? (
+          <main className="messages-area">
           {messages.map((msg, index) => (
             <div key={index} className={`message ${msg.role}`}>
               <div className="message-content">
@@ -302,18 +303,19 @@ function App() {
             </div>
           ))}
           {isLoading && <div className="message assistant"><div className="message-content typing-indicator"><span className="dot"></span><span className="dot"></span><span className="dot"></span></div></div>}
-          <div ref={messagesEndRef} />
-        </main>
-      ) : (
-        <div className="home-screen">
-          <h2>Hi there,</h2>
-           <h1>Where should we start?</h1>
-          <p className="home-screen-copy">
-            Use test mode to preview the UI with mocked responses or switch to live mode to talk to the backend.
-          </p>
-        </div>
-      )}
-      
+          </main>
+        ) : (
+          <div className="home-screen">
+            <h2>Hi there,</h2>
+            <h1>Where should we start?</h1>
+            <p className="home-screen-copy">
+              Use test mode to preview the UI with mocked responses or switch to live mode to talk to the backend.
+            </p>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
       <footer className="input-area">
         {isUserScrolledUp && messages.length > 0 && (
           <button className="scroll-to-bottom" onClick={scrollToBottom}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg></button>
