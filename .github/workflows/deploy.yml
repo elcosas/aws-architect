@@ -21,6 +21,7 @@ jobs:
       FRONTEND_BUCKET: ${{ vars.FRONTEND_BUCKET }}
       CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
       BACKEND_LAMBDA_FUNCTION: ${{ vars.BACKEND_LAMBDA_FUNCTION }}
+      BACKEND_LAMBDA_HANDLER: ${{ vars.BACKEND_LAMBDA_HANDLER }}
       PROMPTS_BUCKET: ${{ vars.PROMPTS_BUCKET }}
     steps:
       - name: Checkout
@@ -84,29 +85,82 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p backend/build
+          PACKAGE_DIR="backend/build/lambda_package"
+          rm -rf "${PACKAGE_DIR}"
+          mkdir -p "${PACKAGE_DIR}"
 
-          if ! find backend -type f ! -path "backend/build/*" ! -name "README(Frontend).md" ! -iname "README.md" | grep -q .; then
-            echo "No backend source files found under backend/. Skipping backend deploy."
+          if [[ ! -d backend/lambda ]]; then
+            echo "backend/lambda directory not found. Skipping backend deploy."
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! find backend/lambda -type f ! -name "*.pyc" | grep -q .; then
+            echo "No Lambda source files found under backend/lambda. Skipping backend deploy."
             echo "should_deploy=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           if [[ -z "${BACKEND_LAMBDA_FUNCTION:-}" ]]; then
-            echo "BACKEND_LAMBDA_FUNCTION is required when backend source files are present."
+            echo "BACKEND_LAMBDA_FUNCTION is required when Lambda source files are present."
             exit 1
           fi
 
           rm -f backend/build/lambda.zip
+          cp -R backend/lambda/. "${PACKAGE_DIR}/"
+
+          if [[ -d backend/validation ]]; then
+            cp -R backend/validation "${PACKAGE_DIR}/"
+          fi
+
+          find "${PACKAGE_DIR}" -type d -name "__pycache__" -prune -exec rm -rf {} +
+
           (
-            cd backend
-            zip -rq build/lambda.zip . -x "build/*" ".git/*" "README(Frontend).md" "README.md"
+            cd "${PACKAGE_DIR}"
+            zip -rq ../lambda.zip . -x "*.pyc"
           )
 
           echo "should_deploy=true" >> "$GITHUB_OUTPUT"
 
       - name: Update backend Lambda function
         if: steps.backend_package.outputs.should_deploy == 'true'
-        run: aws lambda update-function-code --function-name "${BACKEND_LAMBDA_FUNCTION}" --zip-file "fileb://backend/build/lambda.zip" --query 'LastModified' --output text
+        run: |
+          set -euo pipefail
+
+          # Ensure no previous deploy is still updating this function.
+          aws lambda wait function-updated --function-name "${BACKEND_LAMBDA_FUNCTION}"
+
+          aws lambda update-function-code \
+            --function-name "${BACKEND_LAMBDA_FUNCTION}" \
+            --zip-file "fileb://backend/build/lambda.zip" \
+            --query 'LastModified' \
+            --output text
+
+          # Wait for code update completion before any config mutation.
+          aws lambda wait function-updated --function-name "${BACKEND_LAMBDA_FUNCTION}"
+
+      - name: Align backend Lambda handler
+        if: steps.backend_package.outputs.should_deploy == 'true'
+        run: |
+          set -euo pipefail
+
+          LAMBDA_HANDLER="${BACKEND_LAMBDA_HANDLER:-handler.handler}"
+          CURRENT_HANDLER="$(aws lambda get-function-configuration \
+            --function-name "${BACKEND_LAMBDA_FUNCTION}" \
+            --query 'Handler' \
+            --output text)"
+
+          if [[ "${CURRENT_HANDLER}" != "${LAMBDA_HANDLER}" ]]; then
+            aws lambda update-function-configuration \
+              --function-name "${BACKEND_LAMBDA_FUNCTION}" \
+              --handler "${LAMBDA_HANDLER}" \
+              --query 'Handler' \
+              --output text
+
+            aws lambda wait function-updated --function-name "${BACKEND_LAMBDA_FUNCTION}"
+          else
+            echo "Handler already set to ${LAMBDA_HANDLER}. Skipping configuration update."
+          fi
 
       - name: Sync prompts to private S3
         run: |

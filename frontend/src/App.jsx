@@ -3,12 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import MermaidChart from './MermaidChart'
 import './styles/App.css'
 
-// ==========================================
-// 🚀 MASTER SWITCH: TEST MODE VS LIVE MODE
-// ==========================================
-// Defaults to TEST mode unless VITE_TEST_MODE is explicitly set to "false".
-// Example for live mode: VITE_TEST_MODE=false VITE_WS_URL=wss://... npm run dev
-const IS_TEST_MODE = import.meta.env.VITE_TEST_MODE !== 'false'
+const DEFAULT_TEST_MODE = import.meta.env.VITE_TEST_MODE !== 'false'
 const WS_URL =
   import.meta.env.VITE_WS_URL || 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev'
 
@@ -22,11 +17,12 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [ws, setWs] = useState(null);
-  const [isTestMode, setIsTestMode] = useState(IS_TEST_MODE);
+  const [isTestMode, setIsTestMode] = useState(DEFAULT_TEST_MODE);
   
   // Modal States
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [credentialError, setCredentialError] = useState(''); 
+  const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [awsCredentials, setAwsCredentials] = useState({
     accessKeyId: '',
     secretAccessKey: ''
@@ -34,37 +30,40 @@ function App() {
 
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
+  const modeMenuRef = useRef(null);
+  const responseTimeoutRef = useRef(null);
+
+  const clearResponseTimeout = () => {
+    if (responseTimeoutRef.current) {
+      clearTimeout(responseTimeoutRef.current);
+      responseTimeoutRef.current = null;
+    }
+  };
+
+  const startResponseTimeout = () => {
+    clearResponseTimeout();
+    responseTimeoutRef.current = setTimeout(() => {
+      setIsLoading(false);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: '**Timeout Error:** The backend did not respond in time. This is usually an AWS backend issue (Lambda/Bedrock/permissions), not your browser.',
+          timestamp: getCurrentTime(),
+        },
+      ]);
+    }, 45000);
+  };
 
   const awsServices = [
     "Amazon Bedrock", "AWS Lambda", "Amazon S3", "API Gateway", 
     "CloudFront", "CloudFormation", "DynamoDB", "AWS IAM"
   ];
 
-  const currentModeLabel = isTestMode ? 'Test Mode' : 'Live Mode';
-
-  const handleModeChange = (nextModeIsTest) => {
-    if (nextModeIsTest === isTestMode) return;
-
-    setIsLoading(false);
-    setIsTestMode(nextModeIsTest);
-    setCredentialError('');
-
-    if (isDeployModalOpen) {
-      setIsDeployModalOpen(false);
-    }
-
-    if (!nextModeIsTest && !WS_URL) {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: '**Configuration Error:** Live mode is enabled, but no `VITE_WS_URL` is configured.',
-        timestamp: getCurrentTime(),
-      }]);
-    }
-  };
-
-  // --- WEBSOCKET SETUP (ONLY RUNS IF LIVE MODE IS ACTIVE) ---
   useEffect(() => {
     if (isTestMode) {
+      setWs(null);
+      setIsLoading(false);
       console.log('🧪 Running in TEST MODE. WebSocket is disabled.');
       if (ws) {
         ws.close();
@@ -73,21 +72,28 @@ function App() {
       return; 
     }
 
+    console.log(`🌐 Attempting WebSocket connection to ${WS_URL}`);
     const socket = new WebSocket(WS_URL);
     
     socket.onopen = () => console.log('✅ WebSocket Connected!');
     
     socket.onmessage = (event) => {
+      clearResponseTimeout();
       setIsLoading(false);
       try {
         const data = JSON.parse(event.data);
         if (data.mermaid_code) {
           const botResponse = `Here is your architecture:\n\n\`\`\`mermaid\n${data.mermaid_code}\n\`\`\``;
           setMessages(prev => [...prev, { role: 'assistant', content: botResponse, timestamp: getCurrentTime() }]);
+        } else if (data.cloudformation_yaml) {
+          const botResponse = `Here is your CloudFormation template:\n\n\`\`\`yaml\n${data.cloudformation_yaml}\n\`\`\``;
+          setMessages(prev => [...prev, { role: 'assistant', content: botResponse, timestamp: getCurrentTime() }]);
         } else if (data.error) {
           setMessages(prev => [...prev, { role: 'assistant', content: `**Backend Error:** ${data.error}`, timestamp: getCurrentTime() }]);
         } else if (data.message) {
           setMessages(prev => [...prev, { role: 'assistant', content: data.message, timestamp: getCurrentTime() }]);
+        } else {
+          console.log('Received message from backend:', data);
         }
       } catch (err) { 
         console.error("Message parse error:", err); 
@@ -95,17 +101,22 @@ function App() {
     };
 
     socket.onerror = (error) => {
-      console.error("❌ WebSocket Error:", error);
+      console.error(`❌ WebSocket Error while connecting to ${WS_URL}:`, error);
+      clearResponseTimeout();
       setIsLoading(false);
     };
 
-    socket.onclose = () => {
-      console.warn("⚠️ WebSocket Disconnected!");
+    socket.onclose = (event) => {
+      console.warn(
+        `⚠️ WebSocket Disconnected (code=${event.code}, reason="${event.reason || 'no reason provided'}", clean=${event.wasClean})`
+      );
+      clearResponseTimeout();
       setIsLoading(false); 
     };
 
     setWs(socket);
     return () => {
+      clearResponseTimeout();
       socket.close();
     };
   }, [isTestMode]);
@@ -116,6 +127,17 @@ function App() {
       messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
     }
   }, [messages, isLoading, isUserScrolledUp]);
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (modeMenuRef.current && !modeMenuRef.current.contains(event.target)) {
+        setIsModeMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
 
   const handleScroll = () => {
     const container = chatContainerRef.current;
@@ -162,6 +184,16 @@ function App() {
         return;
       }
       ws.send(JSON.stringify({ action: "sendMessage", userInput: userMessage, services: [] }));
+      startResponseTimeout();
+    }
+  };
+
+  // --- INITIATE DEPLOY (ASK "ARE YOU SURE?" FIRST) ---
+  const handleInitiateDeploy = () => {
+    const isConfirmed = window.confirm("Are you sure you want to proceed to deployment? This will eventually create live resources in your AWS account and may incur charges.");
+    
+    if (isConfirmed) {
+      setIsDeployModalOpen(true);
     }
   };
 
@@ -169,7 +201,7 @@ function App() {
   const handleFinalDeploy = (e) => {
     e.preventDefault();
     
-    // 1. REGEX VALIDATION (Always runs)
+    // 1. REGEX VALIDATION
     const accessKeyRegex = /^(AKIA|ASIA)[A-Z0-9]{16}$/;
     const secretKeyRegex = /^[A-Za-z0-9/+=]{40}$/;
 
@@ -183,7 +215,7 @@ function App() {
       return; 
     }
 
-    // Validation passed
+    // Validation passed!
     setCredentialError('');
     setIsDeployModalOpen(false); 
     
@@ -222,6 +254,7 @@ function App() {
         services: [],
         credentials: awsCredentials
       }));
+      startResponseTimeout();
     }
 
     setAwsCredentials({ accessKeyId: '', secretAccessKey: '' });
@@ -233,6 +266,27 @@ function App() {
   };
 
   const handleServiceClick = (service) => setInputValue(`Help me configure ${service}`);
+
+  const resetUiForModeChange = () => {
+    setMessages([]);
+    setInputValue('');
+    setIsLoading(false);
+    setIsUserScrolledUp(false);
+    setCredentialError('');
+    setIsModeMenuOpen(false);
+    setIsDeployModalOpen(false);
+    setAwsCredentials({ accessKeyId: '', secretAccessKey: '' });
+  };
+
+  const handleModeSelect = (mode) => {
+    const nextIsTestMode = mode === 'test';
+    setIsModeMenuOpen(false);
+
+    if (nextIsTestMode === isTestMode) return;
+
+    resetUiForModeChange();
+    setIsTestMode(nextIsTestMode);
+  };
 
   const markdownComponents = useMemo(
     () => ({
@@ -255,33 +309,12 @@ function App() {
   return (
     <div className="chat-container">
       <header className="chat-header">
-        <div className="chat-header__title-row">
-          <h1>AWS Architect</h1>
-          <span className={`mode-pill ${isTestMode ? 'mode-pill--test' : 'mode-pill--live'}`}>
-            {currentModeLabel}
-          </span>
-        </div>
-
-        <div className="mode-toggle" role="group" aria-label="Toggle app mode">
-          <button
-            type="button"
-            className={`mode-toggle__button ${isTestMode ? 'mode-toggle__button--active' : ''}`}
-            onClick={() => handleModeChange(true)}
-          >
-            Test Mode
-          </button>
-          <button
-            type="button"
-            className={`mode-toggle__button ${!isTestMode ? 'mode-toggle__button--active' : ''}`}
-            onClick={() => handleModeChange(false)}
-          >
-            Live Mode
-          </button>
-        </div>
+        <h1>Cloud Weaver</h1>
       </header>
-      
-      {messages.length > 0 ? (
-        <main className="messages-area" ref={chatContainerRef} onScroll={handleScroll}>
+
+      <div className="chat-body-scroll" ref={chatContainerRef} onScroll={handleScroll}>
+        {messages.length > 0 ? (
+          <main className="messages-area">
           {messages.map((msg, index) => (
             <div key={index} className={`message ${msg.role}`}>
               <div className="message-content">
@@ -291,8 +324,9 @@ function App() {
 
                 {index === messages.length - 1 && msg.role === 'assistant' && msg.content.includes('```mermaid') && (
                   <div style={{ marginTop: '12px', textAlign: 'right' }}>
+                    {/* CHANGED: Now calls handleInitiateDeploy instead of opening modal directly */}
                     <button 
-                      onClick={() => setIsDeployModalOpen(true)} 
+                      onClick={handleInitiateDeploy} 
                       style={{
                         backgroundColor: '#238636', 
                         color: 'white', 
@@ -312,24 +346,57 @@ function App() {
             </div>
           ))}
           {isLoading && <div className="message assistant"><div className="message-content typing-indicator"><span className="dot"></span><span className="dot"></span><span className="dot"></span></div></div>}
-          <div ref={messagesEndRef} />
-        </main>
-      ) : (
-        <div className="home-screen">
-          <h2>Hi there,</h2>
-          <h1>Where should we start?</h1>
-          <p className="home-screen__mode-note">
-            You are currently in <strong>{currentModeLabel}</strong>.
-          </p>
-        </div>
-      )}
-      
+          </main>
+        ) : (
+          <div className="home-screen">
+            <h2>Hi there,</h2>
+            <h1>Where should we start?</h1>
+            <p className="home-screen-copy">
+              Use test mode to preview the UI with mocked responses or switch to live mode to talk to the backend.
+            </p>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
       <footer className="input-area">
         {isUserScrolledUp && messages.length > 0 && (
           <button className="scroll-to-bottom" onClick={scrollToBottom}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg></button>
         )}
+        <div className="mode-selector-row" ref={modeMenuRef}>
+          <span className={`active-mode-indicator ${isTestMode ? 'test' : 'dev'}`}>
+            {isTestMode ? '● Test Mode Active' : '● Dev Mode Active'}
+          </span>
+          <button
+            type="button"
+            className="mode-gear-button"
+            onClick={() => setIsModeMenuOpen((prev) => !prev)}
+            aria-label="Open mode selector"
+            aria-expanded={isModeMenuOpen}
+          >
+            ⚙
+          </button>
+          {isModeMenuOpen && (
+            <div className="mode-dropdown">
+              <button
+                type="button"
+                className={`mode-option test ${isTestMode ? 'selected' : ''}`}
+                onClick={() => handleModeSelect('test')}
+              >
+                Test Mode
+              </button>
+              <button
+                type="button"
+                className={`mode-option dev ${!isTestMode ? 'selected' : ''}`}
+                onClick={() => handleModeSelect('dev')}
+              >
+                Dev Mode
+              </button>
+            </div>
+          )}
+        </div>
         <form className="input-form" onSubmit={handleSendMessage}>
-          <input type="text" className="chat-input" placeholder="Ask AWS Architect" value={inputValue} onChange={(e) => setInputValue(e.target.value)} disabled={isLoading} />
+          <input type="text" className="chat-input" placeholder="Ask Cloud Weaver" value={inputValue} onChange={(e) => setInputValue(e.target.value)} disabled={isLoading} />
           <button type="submit" className="send-button" disabled={isLoading || !inputValue.trim()}>Send</button>
         </form>
         <div className="suggestion-chips">

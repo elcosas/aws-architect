@@ -1,4 +1,4 @@
-# AWS-Architect Backend
+# Cloud Weaver Backend
 
 Backend services for ArcForge / AWS-Architect.
 This backend receives a user project idea from the frontend through API Gateway,

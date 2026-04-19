@@ -1,5 +1,8 @@
 /* src/styles/App.css */
 
+/* --- IMPORT MODERN FONTS --- */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 /* --- 1. MAIN CHAT LAYOUT --- */
 .chat-container {
   display: flex;
@@ -7,32 +10,74 @@
   height: 100vh;
   width: 100%;
   background-color: #131314;
-  font-family: "Amazon Ember", "Segoe UI", sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  letter-spacing: 0.3px;
+  overflow: hidden;
+}
+
+.chat-body-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-body-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #ff9900 rgba(170, 59, 255, 0.18);
+}
+
+.chat-body-scroll::-webkit-scrollbar {
+  width: 14px;
+}
+
+.chat-body-scroll::-webkit-scrollbar-track {
+  background: linear-gradient(180deg, rgba(170, 59, 255, 0.18) 0%, rgba(40, 30, 52, 0.4) 100%);
+  border-left: 1px solid rgba(170, 59, 255, 0.2);
+}
+
+.chat-body-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ff9900 0%, #ec7211 100%);
+  border-radius: 999px;
+  border: 2px solid rgba(20, 20, 21, 0.9);
+}
+
+.chat-body-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #ffad33 0%, #ff8a1a 100%);
 }
 
 .chat-header {
-  background-color: #1e1f20;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: linear-gradient(135deg, #1e1f20 0%, #2a1a2e 100%);
   color: #ffffff;
-  padding: 20px max(20px, calc((100% - 900px) / 2));
-  text-align: left;
+  padding: 16px max(20px, calc((100% - 900px) / 2));
+  text-align: center;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
+  justify-content: center;
+  min-height: 76px;
+  box-sizing: border-box;
   border-bottom: 3px solid #FF9900;
-  flex-wrap: wrap;
-}
-
-.chat-header__title-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  box-shadow: 0 4px 16px rgba(170, 59, 255, 0.15), 0 2px 4px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
 }
 
 .chat-header h1 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 500;
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(90deg, #aa3bff, #FF9900);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.5px;
 }
 
 .mode-pill {
@@ -96,36 +141,38 @@
 .messages-area {
   flex: 1;
   padding: 20px max(20px, calc((100% - 900px) / 2));
-  overflow-y: auto;
-  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
   gap: 16px;
   background-color: #131314;
+  scroll-behavior: smooth;
 }
 
 .message {
   max-width: 80%;
   padding: 12px 16px;
-  border-radius: 8px;
-  line-height: 1.5;
+  border-radius: 12px;
+  line-height: 1.6;
   font-size: 15px;
+  font-weight: 500;
 }
 
 .message.user {
   align-self: flex-end;
-  background-color: #FF9900; 
+  background: linear-gradient(135deg, #FF9900 0%, #EC7211 100%);
   color: #131314; 
-  border-bottom-right-radius: 0;
-  font-weight: 500;
+  border-bottom-right-radius: 4px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(255, 153, 0, 0.3);
 }
 
 .message.assistant {
   align-self: flex-start;
-  background-color: #1e1f20; 
+  background: linear-gradient(135deg, #1e1f20 0%, #2a1a2e 100%);
   color: #e3e3e3;
-  border: 1px solid #444746;
-  border-bottom-left-radius: 0;
+  border: 1px solid rgba(170, 59, 255, 0.3);
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 /* --- 2. TIMESTAMPS --- */
@@ -147,9 +194,112 @@
 /* --- 3. INPUT AREA & CONTROLS --- */
 .input-area {
   position: relative;
+  z-index: 25;
   padding: 20px max(20px, calc((100% - 900px) / 2));
-  background-color: #131314;
-  border-top: none;
+  background: linear-gradient(180deg, rgba(19, 19, 20, 0.96) 0%, rgba(19, 19, 20, 1) 45%);
+  border-top: 1px solid rgba(170, 59, 255, 0.22);
+  backdrop-filter: blur(4px);
+}
+
+.mode-selector-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.active-mode-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 170px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  border: 1px solid transparent;
+}
+
+.active-mode-indicator.test {
+  color: #ff8a8a;
+  border-color: rgba(239, 68, 68, 0.6);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.14) 0%, rgba(220, 38, 38, 0.14) 100%);
+}
+
+.active-mode-indicator.dev {
+  color: #86efac;
+  border-color: rgba(34, 197, 94, 0.6);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.14) 0%, rgba(22, 163, 74, 0.14) 100%);
+}
+
+.mode-gear-button {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgba(170, 59, 255, 0.45);
+  background: linear-gradient(135deg, #22172a 0%, #1f2124 100%);
+  color: #d9b6ff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.mode-gear-button:hover {
+  transform: rotate(20deg);
+  border-color: rgba(255, 153, 0, 0.6);
+  box-shadow: 0 4px 12px rgba(170, 59, 255, 0.2);
+}
+
+.mode-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 180px;
+  border-radius: 10px;
+  border: 1px solid #444746;
+  background: #1b1c1f;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+  padding: 6px;
+  z-index: 60;
+}
+
+.mode-option {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  color: #e3e3e3;
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin: 2px 0;
+}
+
+.mode-option.test:hover,
+.mode-option.test.selected {
+  color: #ff8a8a;
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.14);
+}
+
+.mode-option.dev:hover,
+.mode-option.dev.selected {
+  color: #86efac;
+  border-color: rgba(34, 197, 94, 0.5);
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.home-screen-copy {
+  max-width: 640px;
+  margin: 16px 0 0;
+  color: #879596;
+  line-height: 1.6;
 }
 
 .input-form {
@@ -162,63 +312,71 @@
   padding: 14px 16px;
   background-color: #1e1f20; 
   color: #ffffff;
-  border: 1px solid #444746;
-  border-radius: 8px;
+  border: 2px solid #444746;
+  border-radius: 10px;
   font-size: 16px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 500;
   outline: none;
-  transition: border-color 0.2s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .chat-input:focus {
   border-color: #FF9900;
-  box-shadow: 0 0 0 1px #FF9900;
+  box-shadow: 0 0 0 2px rgba(170, 59, 255, 0.1), 0 0 0 4px rgba(255, 153, 0, 0.1);
+  background-color: #262728;
 }
 
 .send-button {
-  background-color: #FF9900;
+  background: linear-gradient(135deg, #FF9900 0%, #EC7211 100%);
   color: #131314;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 0 24px;
-  font-weight: bold;
+  font-weight: 700;
   font-size: 16px;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(255, 153, 0, 0.3);
+  letter-spacing: 0.3px;
 }
 
 .send-button:hover {
-  background-color: #EC7211;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 153, 0, 0.4);
 }
 
 .send-button:disabled {
-  background-color: #444746;
+  background: linear-gradient(135deg, #444746 0%, #333537 100%);
   color: #879596;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 /* --- SCROLL TO BOTTOM BUTTON --- */
 .scroll-to-bottom {
   position: absolute;
-  top: -30px; /* CHANGED: Brings it much closer to the input box */
+  top: -30px;
   left: 50%;
   transform: translateX(-50%); 
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
-  background-color: #1e1f20;
+  background: linear-gradient(135deg, #1e1f20 0%, #2a1a2e 100%);
   color: #FF9900;
-  border: 1px solid #444746;
+  border: 2px solid #FF9900;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-  transition: background-color 0.2s; 
+  box-shadow: 0 4px 12px rgba(255, 153, 0, 0.3);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 10;
 }
 
 .scroll-to-bottom:hover {
-  background-color: #333537;
+  transform: translateX(-50%) translateY(-2px);
+  box-shadow: 0 6px 16px rgba(255, 153, 0, 0.4);
 }
 
 /* --- 4. TYPING ANIMATION --- */
@@ -261,18 +419,22 @@
 
 .home-screen h2 {
   font-size: 28px;
-  color: #879596;
-  font-weight: 500;
-  margin-bottom: 8px;
+  color: #b19cd9;
+  font-weight: 700;
+  margin-bottom: 12px;
   background: linear-gradient(90deg, #aa3bff, #ff9900);
+  background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  letter-spacing: -0.5px;
 }
 
 .home-screen h1 {
-  font-size: 44px;
+  font-size: 48px;
   color: #e3e3e3; 
   margin: 0;
+  font-weight: 800;
+  letter-spacing: -1px;
 }
 
 .home-screen__mode-note {
@@ -293,17 +455,22 @@
 .chip-button {
   background-color: #1e1f20; 
   color: #e3e3e3;
-  border: 1px solid #444746;
+  border: 2px solid #444746;
   padding: 10px 18px;
   border-radius: 24px;
   font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .chip-button:hover {
-  background-color: #333537;
-  border-color: #879596;
+  background: linear-gradient(135deg, rgba(170, 59, 255, 0.1) 0%, rgba(255, 153, 0, 0.1) 100%);
+  border-color: #FF9900;
+  color: #ff9900;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 153, 0, 0.2);
 }
 
 /* --- 7. MARKDOWN STYLING --- */
@@ -318,15 +485,18 @@
   padding-left: 20px;
 }
 .message-content code {
-  background-color: rgba(0, 0, 0, 0.2);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: monospace;
+  background-color: rgba(0, 0, 0, 0.3);
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.9em;
+  font-weight: 500;
+  color: #e3e3e3;
 }
 
 .message.user .message-content code {
-  background-color: rgba(255, 255, 255, 0.2); /* Lighter background for the orange bubble */
+  background-color: rgba(0, 0, 0, 0.2);
+  color: #131314;
 }
 
 /* --- 8. MERMAID DIAGRAM STYLING --- */
@@ -363,19 +533,22 @@
 }
 
 .modal-content {
-  background-color: #1e1f20;
-  border: 1px solid #444746;
-  border-radius: 12px;
+  background: linear-gradient(135deg, #1e1f20 0%, #2a1a2e 100%);
+  border: 2px solid rgba(170, 59, 255, 0.3);
+  border-radius: 16px;
   width: 90%;
   max-width: 400px;
   padding: 24px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(170, 59, 255, 0.1);
 }
 
 .modal-content h3 {
   margin-top: 0;
   margin-bottom: 16px;
   color: #e3e3e3;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
 }
 
 .modal-content p {
@@ -389,25 +562,33 @@
 }
 
 .form-group label {
-  display: block; /* This forces the input box to the next line */
+  display: block;
   font-size: 13px;
-  color: #e3e3e3;
-  margin-bottom: 10px; /* <--- THIS adds the extra space you asked for! */
+  color: #b19cd9;
+  margin-bottom: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .modal-input {
   width: 100%;
-  padding: 10px 12px;
+  padding: 12px 14px;
   background-color: #131314;
-  border: 1px solid #444746;
-  border-radius: 6px;
+  border: 2px solid #444746;
+  border-radius: 8px;
   color: white;
   box-sizing: border-box;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 500;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .modal-input:focus {
   outline: none;
   border-color: #FF9900;
+  background-color: #1a1a1b;
+  box-shadow: 0 0 0 2px rgba(170, 59, 255, 0.1), 0 0 0 4px rgba(255, 153, 0, 0.1);
 }
 
 .modal-actions {
@@ -420,28 +601,40 @@
 .btn-cancel {
   background-color: transparent;
   color: #e3e3e3;
-  border: 1px solid #444746;
-  padding: 8px 16px;
-  border-radius: 6px;
+  border: 2px solid #444746;
+  padding: 10px 18px;
+  border-radius: 8px;
   cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .btn-cancel:hover {
   background-color: #333537;
+  border-color: #b19cd9;
+  color: #b19cd9;
 }
 
 .btn-confirm {
-  background-color: #FF9900;
+  background: linear-gradient(135deg, #FF9900 0%, #EC7211 100%);
   color: #131314;
   border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-weight: bold;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 14px;
   cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  box-shadow: 0 4px 12px rgba(255, 153, 0, 0.3);
+  letter-spacing: 0.3px;
 }
 
 .btn-confirm:hover {
-  background-color: #EC7211;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(255, 153, 0, 0.4);
 }
 
 .credential-error {
