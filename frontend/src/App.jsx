@@ -9,6 +9,7 @@ const WS_URL =
   import.meta.env.VITE_WS_URL || 'wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev'
 const SESSION_STORAGE_KEY = 'aws-architect.sessionID'
 const ASSISTANT_MERMAID_SEPARATOR = '\n\n<<<MERMAID_DIAGRAM>>>\n\n'
+const SETUP_TEMPLATE_URL = 'https://chatbot-setup-templates-yourname.s3.amazonaws.com/setup.yml'
 
 const getStoredSessionId = () => {
   if (typeof window === 'undefined') {
@@ -183,14 +184,12 @@ function App() {
   
   // Modal States
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
-  const [credentialError, setCredentialError] = useState(''); 
+  const [deployError, setDeployError] = useState('');
+  const [isFetchingExternalId, setIsFetchingExternalId] = useState(false);
+  const [latestExternalId, setLatestExternalId] = useState('');
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [selectedServices, setSelectedServices] = useState([]);
   const [activeServiceInfo, setActiveServiceInfo] = useState(null);
-  const [awsCredentials, setAwsCredentials] = useState({
-    accessKeyId: '',
-    secretAccessKey: ''
-  });
 
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
@@ -223,6 +222,88 @@ function App() {
     "Amazon Bedrock", "AWS Lambda", "Amazon S3", "API Gateway", 
     "CloudFront", "CloudFormation", "DynamoDB", "AWS IAM"
   ];
+
+  const buildQuickCreateLink = (externalId) => {
+    const encodedS3Url = encodeURIComponent(SETUP_TEMPLATE_URL);
+    return `https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=${encodedS3Url}&stackName=ChatbotConnect&param_ExternalID=${externalId}`;
+  };
+
+  const requestExternalIdFromServer = () => {
+    return new Promise((resolve, reject) => {
+      if (!sessionID) {
+        reject(new Error('Please send at least one chat message first so a session can be created.'));
+        return;
+      }
+
+      const externalIdSocket = new WebSocket(WS_URL);
+      let settled = false;
+
+      const finishResolve = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        try {
+          externalIdSocket.close();
+        } catch (closeError) {
+          console.warn('Failed to close external ID socket cleanly:', closeError);
+        }
+        resolve(value);
+      };
+
+      const finishReject = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        try {
+          externalIdSocket.close();
+        } catch (closeError) {
+          console.warn('Failed to close external ID socket cleanly:', closeError);
+        }
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+
+      const timeoutId = setTimeout(() => {
+        finishReject(new Error('Timed out while waiting for ExternalID from backend.'));
+      }, 20000);
+
+      externalIdSocket.onopen = () => {
+        externalIdSocket.send(JSON.stringify({
+          action: 'getExternalId',
+          sessionID,
+        }));
+      };
+
+      externalIdSocket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.error) {
+            finishReject(new Error(data.error));
+            return;
+          }
+
+          if (typeof data.externalID === 'string' && data.externalID.trim()) {
+            finishResolve(data.externalID.trim());
+            return;
+          }
+        } catch (parseError) {
+          finishReject(new Error('Invalid ExternalID response from backend.'));
+          return;
+        }
+
+        finishReject(new Error('ExternalID response did not include a valid externalID.'));
+      };
+
+      externalIdSocket.onerror = () => {
+        finishReject(new Error('Lost connection to AWS backend.'));
+      };
+
+      externalIdSocket.onclose = () => {
+        if (!settled) {
+          finishReject(new Error('WebSocket disconnected before ExternalID request completed.'));
+        }
+      };
+    });
+  };
 
   const activeServices = useMemo(() => {
     const latestAssistantContent = extractLatestAssistantContent(messages);
@@ -406,93 +487,52 @@ function App() {
     const isConfirmed = window.confirm("Are you sure you want to proceed to deployment? This will eventually create live resources in your AWS account and may incur charges.");
     
     if (isConfirmed) {
+      setDeployError('');
+      setLatestExternalId('');
       setIsDeployModalOpen(true);
     }
   };
 
-  // --- DEPLOY FLOW (HANDLES BOTH MODES) ---
-  const handleFinalDeploy = (e) => {
-    e.preventDefault();
-    
-    // 1. REGEX VALIDATION
-    const accessKeyRegex = /^(AKIA|ASIA)[A-Z0-9]{16}$/;
-    const secretKeyRegex = /^[A-Za-z0-9/+=]{40}$/;
-
-    if (!accessKeyRegex.test(awsCredentials.accessKeyId)) {
-      setCredentialError('Invalid Access Key ID. Must be 20 characters and start with AKIA or ASIA.');
-      return; 
-    }
-
-    if (!secretKeyRegex.test(awsCredentials.secretAccessKey)) {
-      setCredentialError('Invalid Secret Access Key. Must be exactly 40 characters long.');
-      return; 
-    }
-
-    // Validation passed!
-    setCredentialError('');
-    setIsDeployModalOpen(false); 
-    
-    setMessages(prev => [...prev, { 
-      role: 'user', 
-      content: "I approve this architecture. Please deploy it using my provided AWS Credentials.", 
-      timestamp: getCurrentTime() 
-    }]);
-    setIsLoading(true);
+  const handleConnectAwsAccount = async () => {
+    setDeployError('');
 
     if (!isTestMode && !sessionID) {
-      setIsLoading(false);
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: '**Session Error:** Please send at least one chat message first so a session can be created.',
-        timestamp: getCurrentTime()
-      }]);
+      setDeployError('Please send at least one chat message first so a session can be created.');
       return;
     }
 
-    if (isTestMode) {
-      // 🧪 Fake the deployment response
-      setTimeout(() => {
-        const mockSessionID = sessionID || generateLocalSessionId();
-        if (!sessionID) {
-          setSessionID(mockSessionID);
-          storeSessionId(mockSessionID);
-        }
-
-        setIsLoading(false);
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: "🚀 **Deployment Initiated!** Assuming role and sending CloudFormation templates to AWS...", 
-          timestamp: getCurrentTime() 
-        }]);
-      }, 2000);
-    } else {
-      // 🌐 Live deployment request
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        setIsLoading(false);
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: `**Connection Error:** Lost connection to AWS backend.`, 
-          timestamp: getCurrentTime() 
-        }]);
-        return;
+    setIsFetchingExternalId(true);
+    try {
+      let externalId = '';
+      if (isTestMode) {
+        externalId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : generateLocalSessionId();
+      } else {
+        externalId = await requestExternalIdFromServer();
       }
-      ws.send(JSON.stringify({ 
-        action: "generateCloudFormation", 
-        sessionID: sessionID || null,
-        userInput: "Generate CloudFormation for the latest approved architecture.",
-        approvedDiagram: "",
-        services: selectedServices,
-        credentials: awsCredentials
-      }));
-      startResponseTimeout();
-    }
 
-    setAwsCredentials({ accessKeyId: '', secretAccessKey: '' });
+      setLatestExternalId(externalId);
+      const quickLink = buildQuickCreateLink(externalId);
+      window.open(quickLink, '_blank');
+
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Opened your CloudFormation setup link in a new tab. Complete stack creation in AWS, then return here for the next deployment step.',
+        timestamp: getCurrentTime(),
+      }]);
+
+      setIsDeployModalOpen(false);
+    } catch (error) {
+      setDeployError(error.message || 'Unable to prepare your AWS setup link.');
+    } finally {
+      setIsFetchingExternalId(false);
+    }
   };
 
   const handleCloseModal = () => {
     setIsDeployModalOpen(false);
-    setCredentialError('');
+    setDeployError('');
   };
 
   const handleServiceToggle = (service) => {
@@ -508,11 +548,11 @@ function App() {
     setInputValue('');
     setIsLoading(false);
     setIsUserScrolledUp(false);
-    setCredentialError('');
+    setDeployError('');
     setIsModeMenuOpen(false);
     setIsDeployModalOpen(false);
     setActiveServiceInfo(null);
-    setAwsCredentials({ accessKeyId: '', secretAccessKey: '' });
+    setLatestExternalId('');
   };
 
   const handleModeSelect = (mode) => {
@@ -779,50 +819,41 @@ function App() {
       {isDeployModalOpen && (
         <div className="modal-overlay">
           <div className="modal-content">
-            <h3>Deploy Architecture</h3>
-            <p>Please provide your AWS credentials so we can assume the role and deploy the CloudFormation template.</p>
+            <h3>Connect AWS Account</h3>
+            <p>
+              Click below to open AWS CloudFormation Quick Create for the ChatbotConnect setup stack.
+              This uses a backend-generated ExternalID and does not require sharing long-lived AWS keys.
+            </p>
             
-            {credentialError && (
+            {deployError && (
               <div className="credential-error">
-                {credentialError}
+                {deployError}
               </div>
             )}
-            
-            <form onSubmit={handleFinalDeploy}>
+
+            {latestExternalId && (
               <div className="form-group">
-                <label>AWS Access Key ID</label>
-                <input 
-                  type="text" 
-                  className="modal-input" 
-                  required
-                  value={awsCredentials.accessKeyId}
-                  onChange={(e) => {
-                    setAwsCredentials({...awsCredentials, accessKeyId: e.target.value});
-                    setCredentialError('');
-                  }}
-                  placeholder="AKIAIOSFODNN7EXAMPLE" 
+                <label>Latest ExternalID</label>
+                <input
+                  type="text"
+                  className="modal-input"
+                  value={latestExternalId}
+                  readOnly
                 />
               </div>
-              <div className="form-group">
-                <label>AWS Secret Access Key</label>
-                <input 
-                  type="password" 
-                  className="modal-input" 
-                  required
-                  value={awsCredentials.secretAccessKey}
-                  onChange={(e) => {
-                    setAwsCredentials({...awsCredentials, secretAccessKey: e.target.value});
-                    setCredentialError('');
-                  }}
-                  placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" 
-                />
-              </div>
-              
-              <div className="modal-actions">
-                <button type="button" className="btn-cancel" onClick={handleCloseModal}>Cancel</button>
-                <button type="submit" className="btn-confirm">Deploy to AWS</button>
-              </div>
-            </form>
+            )}
+
+            <div className="modal-actions">
+              <button type="button" className="btn-cancel" onClick={handleCloseModal}>Cancel</button>
+              <button
+                type="button"
+                className="btn-confirm"
+                onClick={handleConnectAwsAccount}
+                disabled={isFetchingExternalId}
+              >
+                {isFetchingExternalId ? 'Preparing Link...' : 'Open AWS Setup Link'}
+              </button>
+            </div>
           </div>
         </div>
       )}
