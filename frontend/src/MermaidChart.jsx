@@ -46,7 +46,12 @@ const MermaidChart = ({ chart }) => {
               // Have mermaid parse the text and give us back the SVG graphic
               const { svg } = await mermaid.render(`${chartIdRef.current}-${i}`, attempts[i]);
               if (!isCancelled) {
-                setSvgCode(svg);
+                const hasSyntaxErrorSvg = /Syntax error in text|mermaid version/i.test(svg);
+                if (hasSyntaxErrorSvg) {
+                  setSvgCode('<div style="color: #ff8a8a; font-weight: 600;">Error rendering diagram</div>');
+                } else {
+                  setSvgCode(svg);
+                }
               }
               return;
             } catch (innerError) {

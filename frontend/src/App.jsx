@@ -945,7 +945,7 @@ function App() {
           {messages.map((msg, index) => (
             <div key={index} className={`message ${msg.role}`}>
               <div className="message-content">
-                <ReactMarkdown components={markdownComponents}>
+                <ReactMarkdown components={msg.isStreaming ? undefined : markdownComponents}>
                   {msg.content}
                 </ReactMarkdown>
 
