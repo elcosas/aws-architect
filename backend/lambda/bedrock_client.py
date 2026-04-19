@@ -30,13 +30,37 @@ TOOL_DEFINITIONS = [
     }
 ]
 
+CFN_TOOL_DEFINITIONS = [
+    {
+        "toolSpec": {
+            "name": "generate_cfn",
+            "description": "Generate AWS CloudFormation YAML code. Always use this tool.",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {
+                        "cloudformation_yaml": {
+                            "type": "string",
+                            "description": "Valid AWS CloudFormation YAML code"
+                        }
+                    },
+                    "required": ["cloudformation_yaml"]
+                }
+            }
+        }
+    }
+]
+
 # ---------------------------------------------------------
 # Step 1: Invoke Amazon Bedrock
 # Uses the Converse API to query the Claude model, forcing
 # it to return a structured JSON tool call with Mermaid JS.
 # ---------------------------------------------------------
-def invoke_bedrock(system_prompt: str, user_message: str) -> dict:
+def invoke_bedrock(system_prompt: str, user_message: str, tool_type: str = "mermaid") -> dict:
     try:
+        # Select the correct tool schema based on the requested type
+        tools = CFN_TOOL_DEFINITIONS if tool_type == "cloudformation" else TOOL_DEFINITIONS
+
         # Call the Bedrock Converse API with the Claude model
         response = bedrock.converse(
             modelId=MODEL_ID,
@@ -45,7 +69,7 @@ def invoke_bedrock(system_prompt: str, user_message: str) -> dict:
                 "role": "user",
                 "content": [{"text": user_message}]
             }],
-            toolConfig={"tools": TOOL_DEFINITIONS}
+            toolConfig={"tools": tools}
         )
 
         # Extract the content blocks from the response message
