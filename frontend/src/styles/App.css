@@ -903,7 +903,6 @@
   cursor: pointer;
   z-index: 3;
   transition: border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
-  animation: uiPopInBounce 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (max-width: 980px) {
