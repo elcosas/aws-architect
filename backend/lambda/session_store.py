@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import time
@@ -13,6 +14,7 @@ DEFAULT_CHAT_HISTORY_LIMIT = 60
 DEFAULT_CHAT_HISTORY_HARD_CAP = 120
 DEFAULT_HISTORY_MESSAGE_MAX_CHARS = 1800
 ASSISTANT_MERMAID_SEPARATOR = "\n\n<<<MERMAID_DIAGRAM>>>\n\n"
+EXTERNAL_ID_METADATA_KEY = "externalID"
 
 
 dynamodb = boto3.resource("dynamodb")
@@ -85,6 +87,17 @@ def build_message_ts() -> str:
     return f"{int(time.time() * 1000):013d}-{uuid.uuid4().hex[:8]}"
 
 
+def _belongs_to_session(item: Dict, hash_key: str, session_id: str) -> bool:
+    value = item.get(hash_key)
+    if value is None:
+        return False
+    return str(value).strip() == str(session_id).strip()
+
+
+def generate_external_id() -> str:
+    return str(uuid.uuid4())
+
+
 def build_assistant_message_content(assistant_text: str, mermaid_code: Optional[str] = None) -> str:
     if not mermaid_code:
         return (assistant_text or "").strip()
@@ -139,17 +152,71 @@ def save_message(
     return item["messageTs"]
 
 
-def _compact_history_content(content: str) -> str:
-    normalized = (content or "").strip()
-    if not normalized:
-        return ""
+def _extract_external_id_from_metadata(message_content: str) -> Optional[str]:
+    if not message_content:
+        return None
 
-    # Keep memory context concise so long-running chats still fit model context.
-    if len(normalized) <= history_message_max_chars:
-        return normalized
+    try:
+        payload = json.loads(message_content)
+        external_id = payload.get(EXTERNAL_ID_METADATA_KEY)
+        if isinstance(external_id, str) and external_id.strip():
+            return external_id.strip()
+    except Exception:
+        return None
 
-    truncated = normalized[: history_message_max_chars].rstrip()
-    return f"{truncated}\n\n[truncated for context window]"
+    return None
+
+
+def get_session_external_id(session_id: str) -> Optional[str]:
+    messages_hash_key, messages_range_key = _get_table_keys(messages_table)
+
+    query_args = {
+        "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
+        "ConsistentRead": True,
+        "Limit": 100,
+    }
+    if messages_range_key:
+        query_args["ScanIndexForward"] = False
+
+    last_evaluated_key = None
+    while True:
+        if last_evaluated_key:
+            query_args["ExclusiveStartKey"] = last_evaluated_key
+
+        response = messages_table.query(**query_args)
+        items = response.get("Items", [])
+
+        for item in items:
+            if not _belongs_to_session(item, messages_hash_key, session_id):
+                continue
+
+            if item.get("message_type") != "metadata":
+                continue
+
+            external_id = _extract_external_id_from_metadata(item.get("message_content", ""))
+            if external_id:
+                return external_id
+
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if not last_evaluated_key:
+            break
+
+    return None
+
+
+def ensure_session_external_id(session_id: str) -> str:
+    existing_external_id = get_session_external_id(session_id)
+    if existing_external_id:
+        return existing_external_id
+
+    generated_external_id = generate_external_id()
+    save_message(
+        session_id,
+        "system",
+        json.dumps({EXTERNAL_ID_METADATA_KEY: generated_external_id}),
+        message_type="metadata",
+    )
+    return generated_external_id
 
 
 def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> List[Dict]:
@@ -157,8 +224,13 @@ def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> Li
     message_limit = max(1, min(requested_limit, chat_history_hard_cap))
     messages_hash_key, messages_range_key = _get_table_keys(messages_table)
 
-    items: List[Dict] = []
-    last_evaluated_key = None
+    query_args = {
+        "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
+        "ConsistentRead": True,
+        "Limit": message_limit,
+    }
+    if messages_range_key:
+        query_args["ScanIndexForward"] = False
 
     while len(items) < message_limit:
         remaining = message_limit - len(items)
@@ -184,6 +256,9 @@ def get_recent_chat_messages(session_id: str, limit: Optional[int] = None) -> Li
 
     chat_messages = []
     for item in items:
+        if not _belongs_to_session(item, messages_hash_key, session_id):
+            continue
+
         if item.get("message_type", "standard") != "standard":
             continue
 
@@ -220,6 +295,7 @@ def get_latest_assistant_architecture_context(session_id: str) -> Optional[Dict]
 
     query_args = {
         "KeyConditionExpression": Key(messages_hash_key).eq(session_id),
+        "ConsistentRead": True,
         "Limit": 50,
     }
     if messages_range_key:
@@ -232,6 +308,9 @@ def get_latest_assistant_architecture_context(session_id: str) -> Optional[Dict]
         items = sorted(items, key=lambda item: item.get("messageTs", ""), reverse=True)
 
     for item in items:
+        if not _belongs_to_session(item, messages_hash_key, session_id):
+            continue
+
         if item.get("message_type", "standard") != "standard":
             continue
 
