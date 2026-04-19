@@ -689,17 +689,32 @@ def run_generate_cloudformation_deployment(session_id: str, role_arn: str, deplo
         latest_assistant_context.get("mermaid_code", ""),
     )
 
-    deployment_result = deploy_cloudformation_stack(
-        cfn_client,
-        deployment_inputs["stack_name"],
-        cloudformation_yaml,
-    )
+    deployment_error = None
+    deployment_result = None
+    cleanup_result = {"status": "skipped", "reason": "Cleanup did not run."}
 
-    cleanup_result = cleanup_setup_stack(
-        cfn_client,
-        deployment_inputs["setup_stack_name"],
-        deployment_inputs["stack_name"],
-    )
+    try:
+        deployment_result = deploy_cloudformation_stack(
+            cfn_client,
+            deployment_inputs["stack_name"],
+            cloudformation_yaml,
+        )
+    except Exception as exc:
+        deployment_error = exc
+    finally:
+        cleanup_result = cleanup_setup_stack(
+            cfn_client,
+            deployment_inputs["setup_stack_name"],
+            deployment_inputs["stack_name"],
+        )
+
+    if deployment_error is not None:
+        cleanup_status = cleanup_result.get("status")
+        cleanup_reason = cleanup_result.get("reason")
+        cleanup_context = f"Setup stack cleanup status: {cleanup_status}."
+        if cleanup_reason:
+            cleanup_context = f"{cleanup_context} {cleanup_reason}"
+        raise RuntimeError(f"{deployment_error} {cleanup_context}")
 
     cleanup_status = cleanup_result.get("status")
     cleanup_note = ""
