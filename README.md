@@ -1,5 +1,7 @@
 # Cloud Weaver
 
+![Cloud Weaver Wallpaper](docs/images/wallpaper.png)
+
 Cloud Weaver is an AI-powered AWS architecture assistant that turns a user's
 plain-English project idea into an AWS architecture diagram, validates it, and
 prepares the output for deployment-oriented workflows.
@@ -49,6 +51,8 @@ architectures:
 - **AWS IAM**
 
 ## AWS services used to build this application
+
+![Cloud Weaver Architecture Diagram](docs/images/architecture-diagram.png)
 
 These are the AWS services used internally to power the application itself:
 
