@@ -84,6 +84,14 @@ const generateLocalSessionId = () => {
   return `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+const generateMessageId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+
+  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 const getCurrentTime = () => {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
@@ -260,6 +268,56 @@ function App() {
   const [isMobileServicesOpen, setIsMobileServicesOpen] = useState(false);
   const [homeVerbIndex, setHomeVerbIndex] = useState(0);
   const [copiedSectionKey, setCopiedSectionKey] = useState(null);
+  const streamingIntervalRef = useRef(null);
+  const seenDeploymentTerminalMessagesRef = useRef(new Set());
+
+  const createChatMessage = (role, content, extra = {}) => {
+    return {
+      messageId: generateMessageId(),
+      role,
+      content,
+      timestamp: getCurrentTime(),
+      ...extra,
+    }
+  }
+
+  const clearStreamingInterval = () => {
+    if (streamingIntervalRef.current) {
+      clearInterval(streamingIntervalRef.current)
+      streamingIntervalRef.current = null
+    }
+  }
+
+  const getDeploymentTerminalFingerprint = (payload) => {
+    if (!payload || typeof payload !== 'object') {
+      return null
+    }
+
+    if (payload.deploymentEvent === 'queued') {
+      return null
+    }
+
+    const isDeploymentTerminalPayload = Boolean(
+      payload.deploymentEvent === 'terminal'
+      || payload.deploymentEvent === 'cleanup-terminal'
+      || payload.deploymentEvent === 'error'
+      || payload.deploymentOperation
+      || payload.cleanup,
+    )
+
+    if (!isDeploymentTerminalPayload) {
+      return null
+    }
+
+    return [
+      payload.sessionID || '',
+      payload.stackName || '',
+      payload.deploymentOperation || '',
+      (payload.cleanup && payload.cleanup.status) || '',
+      payload.error || '',
+      payload.message || '',
+    ].join('|')
+  }
 
   useEffect(() => {
     const finalIndex = HOME_ROTATING_VERBS.length - 1
@@ -278,27 +336,37 @@ function App() {
 
   const simulateStreaming = (fullText, analysis, latencyLabel = null) => {
     setIsLoading(false);
+<<<<<<< HEAD
     const messageId = `assistant-stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const timestamp = getCurrentTime();
     setMessages(prev => [...prev, {
       messageId,
       role: "assistant",
       content: "",
+=======
+    clearStreamingInterval()
+    const streamingMessageId = generateMessageId()
+    setMessages(prev => [...prev, {
+      messageId: streamingMessageId,
+      role: 'assistant',
+      content: '',
+>>>>>>> 38746cdcc180596fba8fb4bac65f118d947ebcdb
       analysis: null,
       latency: latencyLabel,
-      timestamp,
-      isStreaming: true
+      timestamp: getCurrentTime(),
+      isStreaming: true,
     }]);
 
     const chunkSize = 15;
     const delay = 10;
     let currentIndex = 0;
 
-    const intervalId = setInterval(() => {
+    streamingIntervalRef.current = setInterval(() => {
       currentIndex += chunkSize;
       const currentText = fullText.slice(0, currentIndex);
       
       setMessages(prev => {
+<<<<<<< HEAD
         const isDone = currentIndex >= fullText.length
         
         if (isDone) {
@@ -324,12 +392,49 @@ function App() {
           }
         })
       });
+=======
+        const isFinalChunk = currentIndex >= fullText.length
+        const updatedMessages = prev.map((message) => {
+          if (message.messageId !== streamingMessageId) {
+            return message
+          }
+
+          if (isFinalChunk) {
+            return {
+              ...message,
+              content: fullText,
+              analysis,
+              isStreaming: false,
+            }
+          }
+
+          return {
+            ...message,
+            content: currentText,
+          }
+        })
+
+        if (isFinalChunk) {
+          clearStreamingInterval()
+        }
+
+        return updatedMessages
+      })
+>>>>>>> 38746cdcc180596fba8fb4bac65f118d947ebcdb
     }, delay);
 
     streamIntervalIdsRef.current.add(intervalId)
   };
 
+<<<<<<< HEAD
   useEffect(() => () => clearStreamingIntervals(), [])
+=======
+  useEffect(() => {
+    return () => {
+      clearStreamingInterval()
+    }
+  }, [])
+>>>>>>> 38746cdcc180596fba8fb4bac65f118d947ebcdb
 
   const appContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -404,12 +509,11 @@ function App() {
       setIsLoading(false);
       setMessages(prev => [
         ...prev,
-        {
-          role: 'assistant',
-          content: '**Timeout Error:** The backend did not respond in time. This is usually an AWS backend issue (Lambda/Bedrock/permissions), not your browser.',
-          latency: formatLatencyLabel(45000),
-          timestamp: getCurrentTime(),
-        },
+        createChatMessage(
+          'assistant',
+          '**Timeout Error:** The backend did not respond in time. This is usually an AWS backend issue (Lambda/Bedrock/permissions), not your browser.',
+          { latency: formatLatencyLabel(45000) },
+        ),
       ]);
       responseStartedAtRef.current = null
     }, 45000);
@@ -532,9 +636,27 @@ function App() {
       try {
         const data = JSON.parse(event.data);
 
+        const terminalFingerprint = getDeploymentTerminalFingerprint(data)
+        if (terminalFingerprint && seenDeploymentTerminalMessagesRef.current.has(terminalFingerprint)) {
+          console.log('Skipping duplicate deployment terminal message:', terminalFingerprint)
+          return
+        }
+
+        if (terminalFingerprint) {
+          seenDeploymentTerminalMessagesRef.current.add(terminalFingerprint)
+        }
+
         const isDeployAck = data.jobQueued === true;
-        const isDeployTerminal = Boolean(data.stackName || data.deploymentOperation || data.cleanup);
-        const isDeployError = typeof data.error === 'string' && /deployment|cloudformation/i.test(data.error);
+        const isDeployTerminal = Boolean(
+          data.deploymentEvent === 'terminal'
+          || data.deploymentEvent === 'cleanup-terminal'
+          || data.deploymentOperation
+          || data.cleanup,
+        );
+        const isDeployError = Boolean(
+          data.deploymentEvent === 'error'
+          || (typeof data.error === 'string' && /deployment|cloudformation/i.test(data.error)),
+        );
 
         if (!isDeployAck) {
           setIsLoading(false);
@@ -563,7 +685,7 @@ function App() {
           const botResponse = `Here is your CloudFormation template:\n\n\`\`\`yaml\n${data.cloudformation_yaml}\n\`\`\``;
           simulateStreaming(botResponse, null, responseLatency);
         } else if (data.error) {
-          setMessages(prev => [...prev, { role: 'assistant', content: `**Backend Error:** ${data.error}`, latency: responseLatency, timestamp: getCurrentTime() }]);
+          setMessages(prev => [...prev, createChatMessage('assistant', `**Backend Error:** ${data.error}`, { latency: responseLatency })]);
         } else if (data.message) {
           const messageText = String(data.message || '')
           const isDeploymentStatusMessage = data.jobQueued || /^Deployment\s/i.test(messageText)
@@ -746,17 +868,16 @@ function App() {
     if (selectedServices.length === 0) {
       setMessages(prev => [
         ...prev,
-        {
-          role: 'assistant',
-          content: '**Select Services First:** Please select at least one AWS service from the panel before generating an architecture.',
-          timestamp: getCurrentTime(),
-        },
+        createChatMessage(
+          'assistant',
+          '**Select Services First:** Please select at least one AWS service from the panel before generating an architecture.',
+        ),
       ]);
       return;
     }
 
     const userMessage = inputValue;
-    setMessages(prev => [...prev, { role: 'user', content: userMessage, timestamp: getCurrentTime() }]);
+    setMessages(prev => [...prev, createChatMessage('user', userMessage)]);
     setInputValue('');
     setIsLoading(true);
     markResponseStart();
@@ -795,23 +916,23 @@ function App() {
 
         setIsLoading(false);
         const responseLatency = consumeResponseLatencyLabel();
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: "Here is your architecture:\n\n```mermaid\ngraph LR\nUser --> API[API Gateway]\nAPI --> Lambda[AWS Lambda]\nLambda --> DB[(DynamoDB)]\n```", 
-          analysis: mockAnalysis,
-          latency: responseLatency,
-          timestamp: getCurrentTime() 
-        }]);
+        setMessages(prev => [...prev, createChatMessage(
+          'assistant',
+          "Here is your architecture:\n\n```mermaid\ngraph LR\nUser --> API[API Gateway]\nAPI --> Lambda[AWS Lambda]\nLambda --> DB[(DynamoDB)]\n```",
+          {
+            analysis: mockAnalysis,
+            latency: responseLatency,
+          },
+        )]);
       }, 1500);
     } else {
       // 🌐 Live backend request
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         setIsLoading(false);
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: `**Connection Error:** I cannot reach the AWS backend at \`${WS_URL}\`. If you are developing locally and want mocked responses, enable test mode with \`VITE_TEST_MODE=true\`.`, 
-          timestamp: getCurrentTime() 
-        }]);
+        setMessages(prev => [...prev, createChatMessage(
+          'assistant',
+          `**Connection Error:** I cannot reach the AWS backend at \`${WS_URL}\`. If you are developing locally and want mocked responses, enable test mode with \`VITE_TEST_MODE=true\`.`,
+        )]);
         return;
       }
       ws.send(JSON.stringify({
@@ -901,16 +1022,8 @@ function App() {
 
     if (isTestMode) {
       setMessages(prev => [...prev,
-        {
-          role: 'user',
-          content: `Use this Role ARN for deployment: ${normalizedRoleArn}`,
-          timestamp: getCurrentTime(),
-        },
-        {
-          role: 'assistant',
-          content: 'Test mode: would now request CloudFormation generation with your provided Role ARN.',
-          timestamp: getCurrentTime(),
-        },
+        createChatMessage('user', `Use this Role ARN for deployment: ${normalizedRoleArn}`),
+        createChatMessage('assistant', 'Test mode: would now request CloudFormation generation with your provided Role ARN.'),
       ]);
       setIsDeployModalOpen(false);
       return;
@@ -922,14 +1035,15 @@ function App() {
     }
 
     const targetStackName = buildDefaultStackName(sessionID);
+    seenDeploymentTerminalMessagesRef.current.clear()
 
     setIsDeployModalOpen(false);
     setIsLoading(true);
-    setMessages(prev => [...prev, {
-      role: 'user',
-      content: `Generate CloudFormation using Role ARN: ${normalizedRoleArn} (region: ${DEFAULT_DEPLOY_REGION}, stack: ${targetStackName})`,
-      timestamp: getCurrentTime(),
-    }]);
+    setIsDeploying(true)
+    setMessages(prev => [...prev, createChatMessage(
+      'user',
+      `Generate CloudFormation using Role ARN: ${normalizedRoleArn} (region: ${DEFAULT_DEPLOY_REGION}, stack: ${targetStackName})`,
+    )]);
 
     ws.send(JSON.stringify({
       action: 'generateCloudFormation',
@@ -1060,8 +1174,10 @@ function App() {
       >
         {messages.length > 0 ? (
           <main className="messages-area">
-          {messages.map((msg, index) => (
-            <div key={index} className={`message ${msg.role}`}>
+          {messages.map((msg, index) => {
+            const messageKey = msg.messageId || `legacy-${index}`
+            return (
+            <div key={messageKey} className={`message ${msg.role}`}>
               <div className="message-content">
                 <ReactMarkdown components={msg.isStreaming ? undefined : markdownComponents}>
                   {msg.content}
@@ -1074,11 +1190,11 @@ function App() {
                       <button
                         type="button"
                         className="section-copy-button"
-                        onClick={() => handleCopySection(msg.analysis.why_this_architecture, `${index}-why`)}
+                        onClick={() => handleCopySection(msg.analysis.why_this_architecture, `${messageKey}-why`)}
                         aria-label="Copy Why this architecture"
-                        title={copiedSectionKey === `${index}-why` ? 'Copied' : 'Copy'}
+                        title={copiedSectionKey === `${messageKey}-why` ? 'Copied' : 'Copy'}
                       >
-                        {copiedSectionKey === `${index}-why` ? (
+                        {copiedSectionKey === `${messageKey}-why` ? (
                           <span className="section-copy-button__icon section-copy-button__icon--copied" aria-hidden="true">✓</span>
                         ) : (
                           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className="section-copy-button__icon">
@@ -1090,7 +1206,7 @@ function App() {
                     </div>
                     <p>{msg.analysis.why_this_architecture}</p>
 
-                    {expandedAnalysisByMessage[index] && (
+                    {expandedAnalysisByMessage[messageKey] && (
                       <>
                         <div className="reasoning-section-header">
                           <h4>Pros &amp; Cons</h4>
@@ -1100,13 +1216,13 @@ function App() {
                             onClick={() =>
                               handleCopySection(
                                 `Pros:\n${buildBulletedList(msg.analysis.pros || [])}\n\nCons:\n${buildBulletedList(msg.analysis.cons || [])}`,
-                                `${index}-pros-cons`,
+                                `${messageKey}-pros-cons`,
                               )
                             }
                             aria-label="Copy Pros and Cons"
-                            title={copiedSectionKey === `${index}-pros-cons` ? 'Copied' : 'Copy'}
+                            title={copiedSectionKey === `${messageKey}-pros-cons` ? 'Copied' : 'Copy'}
                           >
-                            {copiedSectionKey === `${index}-pros-cons` ? (
+                            {copiedSectionKey === `${messageKey}-pros-cons` ? (
                               <span className="section-copy-button__icon section-copy-button__icon--copied" aria-hidden="true">✓</span>
                             ) : (
                               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className="section-copy-button__icon">
@@ -1142,11 +1258,11 @@ function App() {
                           <button
                             type="button"
                             className="section-copy-button"
-                            onClick={() => handleCopySection(msg.analysis.improvements, `${index}-improvements`)}
+                            onClick={() => handleCopySection(msg.analysis.improvements, `${messageKey}-improvements`)}
                             aria-label="Copy Improvements"
-                            title={copiedSectionKey === `${index}-improvements` ? 'Copied' : 'Copy'}
+                            title={copiedSectionKey === `${messageKey}-improvements` ? 'Copied' : 'Copy'}
                           >
-                            {copiedSectionKey === `${index}-improvements` ? (
+                            {copiedSectionKey === `${messageKey}-improvements` ? (
                               <span className="section-copy-button__icon section-copy-button__icon--copied" aria-hidden="true">✓</span>
                             ) : (
                               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className="section-copy-button__icon">
@@ -1164,12 +1280,12 @@ function App() {
                       <button
                         type="button"
                         className="analysis-toggle-button"
-                        aria-expanded={Boolean(expandedAnalysisByMessage[index])}
-                        aria-label={expandedAnalysisByMessage[index] ? 'Hide architecture details' : 'Show architecture details'}
-                        onClick={() => toggleAnalysisDetails(index)}
+                        aria-expanded={Boolean(expandedAnalysisByMessage[messageKey])}
+                        aria-label={expandedAnalysisByMessage[messageKey] ? 'Hide architecture details' : 'Show architecture details'}
+                        onClick={() => toggleAnalysisDetails(messageKey)}
                       >
                         <span className="analysis-toggle-button__icon" aria-hidden="true">
-                          {expandedAnalysisByMessage[index] ? '−' : '+'}
+                          {expandedAnalysisByMessage[messageKey] ? '−' : '+'}
                         </span>
                       </button>
                     </div>
@@ -1203,7 +1319,7 @@ function App() {
                 </div>
               )}
             </div>
-          ))}
+          )})}
           {isLoading && (
             <div className="message assistant">
               <div className="message-content typing-indicator" aria-live="polite">

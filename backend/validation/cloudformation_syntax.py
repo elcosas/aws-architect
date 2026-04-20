@@ -7,6 +7,7 @@ so callers can fail early before deeper semantic checks or deployment.
 
 from __future__ import annotations
 
+import re
 from typing import TypedDict
 
 import yaml
@@ -60,6 +61,9 @@ def _construct_unknown_tag(loader: _CloudFormationLoader, _: str, node: yaml.Nod
 
 
 _CloudFormationLoader.add_multi_constructor("!", _construct_unknown_tag)
+
+
+S3_BUCKET_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 
 
 def validate_cloudformation_syntax(template_text: str) -> ValidationResult:
@@ -139,6 +143,49 @@ def validate_cloudformation_syntax(template_text: str) -> ValidationResult:
                         "message": f"Resource '{logical_id}' is missing a valid 'Type' field.",
                     }
                 )
+
+            if resource_type == "AWS::S3::Bucket":
+                properties = resource.get("Properties")
+                if not isinstance(properties, dict):
+                    continue
+
+                bucket_name = properties.get("BucketName")
+                if not isinstance(bucket_name, str):
+                    continue
+
+                if "AWS::StackName" in bucket_name:
+                    errors.append(
+                        {
+                            "rule": "s3_bucket_name_stackname",
+                            "message": (
+                                f"Resource '{logical_id}' uses AWS::StackName in BucketName, "
+                                "which can introduce uppercase characters and fail S3 bucket creation. "
+                                "Use a lowercase-only static name or omit BucketName to let CloudFormation generate one."
+                            ),
+                        }
+                    )
+
+                if any(ch.isupper() for ch in bucket_name):
+                    errors.append(
+                        {
+                            "rule": "s3_bucket_name_uppercase",
+                            "message": (
+                                f"Resource '{logical_id}' has uppercase characters in BucketName '{bucket_name}'. "
+                                "S3 bucket names must be lowercase."
+                            ),
+                        }
+                    )
+
+                if not S3_BUCKET_NAME_PATTERN.match(bucket_name):
+                    warnings.append(
+                        {
+                            "rule": "s3_bucket_name_pattern",
+                            "message": (
+                                f"Resource '{logical_id}' has BucketName '{bucket_name}' which may not satisfy "
+                                "S3 naming rules (3-63 chars, lowercase letters, numbers, dots, and hyphens)."
+                            ),
+                        }
+                    )
 
     # 6) Final pass/fail is based on whether blocking errors were found.
     return {
