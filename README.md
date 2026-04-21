@@ -13,6 +13,7 @@ It supports a full architecture workflow:
 ## Live endpoints
 
 - Frontend (CloudFront): https://d2k45vy1qt3ioe.cloudfront.net/
+  - Website has been shutdown due to Hackathon ending
 - Backend (API Gateway WebSocket): wss://9vihcpxj86.execute-api.us-west-2.amazonaws.com/dev/
 
 ## Table of contents
